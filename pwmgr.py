@@ -17,6 +17,14 @@ import base64
 import json
 import os
 import sys
+import threading
+import time
+
+try:
+    import pyperclip
+except ImportError:
+    pyperclip = None
+
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -194,6 +202,71 @@ def genPass(length = 20, *, symbols = True, noLookalikes = True):
     alphabet = "".join(ch for ch in (letters + digits + sym) if ch not in lookalikeStrip)
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
+def unlockForUpdate(*, passphrase=None, path=VAULT_DEFAULT_PATH, device_key_path=DEVICE_KEY_PATH):
+    """
+    Ret (vault_dict, vmk_bytes, entries_dict)
+
+    :param passphrase: User def passphrase to unlock vault
+    :param path: Path to vault
+    :param device_key_path: Path to device key
+    """
+
+    with open(path) as f:
+        vault = json.load(f)
+    
+    if passphrase is not None:
+        vmk, entries = unlockWithPassphrase(vault, passphrase)
+        return vault, vmk, entries
+    
+    try:
+        with open(device_key_path, "rb") as f:
+            sk = f.read()
+        vmk, entries = unlockWithDevice(vault, sk)
+        return vault, vmk, entries
+    except FileNotFoundError:
+        raise RuntimeError("Device Key not found! Provide passphrase or run device init!")
+    except Exception as e:
+        raise RuntimeError(f"Device unlock failed {e}. Try --passphrase")
+    
+def updateVaultPayload(vault, vmk, entries):
+
+    vNonce, vCt = aead_encrypt_xchacha(vmk, json.dumps(entries).encode("utf-8"))
+    vault["vault"]["nonce"] = b64e(vNonce)
+    vault["vault"]["ciphertext"] = b64e(vCt)
+
+    return vault
+
+# =========================
+# === Clipboard Helpers ===
+# =========================
+
+def copy_to_clipboard(secret, *, clear_after = 30):
+    if pyperclip is None:
+        print("⚠️ Clipboard support not avaliable")
+        return
+    
+    try: 
+        pyperclip.copy(secret)
+    except Exception as e:
+        print(f"Failed to copy to clipboard: {e}")
+        return
+
+    print(f"📋 Password copied for {clear_after} seconds.")
+
+    def _clear():
+        time.sleep(clear_after)
+
+        try: 
+            if pyperclip.paste() == secret:
+                pyperclip.copy("")
+                print("\n🧹 Clipboard cleared.")
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_clear, daemon=True)
+    t.start()
+
+
 # ================
 # === Drivers! ===
 # ================
@@ -226,6 +299,98 @@ def cmd_test_device_unlock(*, path = VAULT_DEFAULT_PATH, device_key_path = DEVIC
     vmk, entries = unlockWithDevice(vault, sk)
     print("✅ Device unlock OK. Items:", len(entries.get("items", [])))
 
+def cmd_add(site, username, *, notes="", length=20, passphrase=None, path=VAULT_DEFAULT_PATH, device_key_path=DEVICE_KEY_PATH):
+    vault, vmk, entries = unlockForUpdate(passphrase=passphrase, path=path, device_key_path=device_key_path)
+    pwd = genPass(length=length)
+    items = entries.setdefault("items", [])
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    items.append({
+        "site": site,
+        "username": username,
+        "password": pwd,
+        "notes": notes,
+        "today": today,
+        "last_rotated": today,
+    })
+
+    updateVaultPayload(vault, vmk, entries)
+    with open(path, "w") as f:
+        json.dump(vault, f, indent=2)
+
+    print(f"✅ Added entry for {site} ({username}).")
+    print("Generated Password:")
+    print(pwd)
+    copy_to_clipboard(pwd, clear_after=20)
+
+def cmd_get(site, *, username=None, passphrase=None, path=VAULT_DEFAULT_PATH, device_key_path=DEVICE_KEY_PATH):
+    vault, vmk, entries = unlockForUpdate(passphrase=passphrase, path=path, device_key_path=device_key_path)
+
+    items = entries.get("items", [])
+    matches = []
+    for item in items:
+        if item.get("site") != site:
+            continue
+        if username is not None and item.get("username") != username:
+            continue
+        matches.append(item)
+
+    if not matches:
+        print(f"⚠️ No entries found for site='{site}'" + (f", username='{username}'" if username else ""))
+        return 
+
+    print(f"✅ Found {len(matches)} entr{'y' if len(matches) == 1 else 'ies'} for {site}:")
+    for i, item in enumerate(matches, start=1):
+        print("-" * 40)
+        print(f"[{i}] site: {item.get('site')}")
+        print(f"     username: {item.get('username')}")
+        print(f"     password: {item.get('password')}")
+        print(f"     created: {item.get('created')}")
+        print(f"     rotated: {item.get('last_rotated')}")
+        if item.get("notes"):
+            print(f"    notes:    {item['notes']}")
+    
+    first = matches[0]
+    pwd = first.get("password")
+    if pwd:
+        print(f"\n📋 Copying pass for site: {first.get('site')}, username: {first.get('username')} to clipboard.")
+        copy_to_clipboard(pwd, clear_after=20)
+
+def cmd_rotate(site, *, username=None, length=20, passphrase=None, path=VAULT_DEFAULT_PATH, device_key_path=DEVICE_KEY_PATH):
+    vault, vmk, entries = unlockForUpdate(passphrase=passphrase, path=path, device_key_path=device_key_path)
+
+    items = entries.get("items",[])
+    target = None
+
+    for item in items:
+        if item.get("site") != site:
+            continue
+        if username is not None and item.get("username") != username:
+            continue
+        target = item
+        break
+
+ 
+    if target is None:
+        print(f"⚠️ No entry found to rotate for site='{site}'" + (f", username='{username}'" if username else ""))
+        return 
+
+    new_pwd = genPass(length=length)
+    today = datetime.now().strftime("%Y-%m-%d")
+    target["password"] = new_pwd
+    target["last_rotated"] = today
+
+    updateVaultPayload(vault, vmk, entries)
+    with open(path, "w") as f:
+        json.dump(vault, f, indent=2)
+    
+    print(f"✅ Rotated password for {site}" + (f"({username})" if username else ""))
+    print("New Password:")
+    print(new_pwd)
+    copy_to_clipboard(new_pwd, clear_after=20)
+    
+
+
 
 if __name__ == "__main__":
     import argparse
@@ -246,6 +411,25 @@ if __name__ == "__main__":
 
     s4 = sub.add_parser("test-unlock-device", help="Test device unlock")
 
+    s5 = sub.add_parser("add", help="Add a new entry (gen password)")
+    s5.add_argument("site")
+    s5.add_argument("--username", required=True)
+    s5.add_argument("--notes", default="")
+    s5.add_argument("--length", type=int, default=20)
+    s5.add_argument("--passphrase", help="Unlock using this passphrase instead of device key")
+
+    s6 = sub.add_parser("get", help="Get entry/entries for a site")
+    s6.add_argument("site")
+    s6.add_argument("--username", help="Filter by username")
+    s6.add_argument("--passphrase", help="Unlock using this passphrase instead of device key")
+
+    s7 = sub.add_parser("rotate", help="Rotate password for an entry")
+    s7.add_argument("site")
+    s7.add_argument("--username",help="Filter by username")
+    s7.add_argument("--length", type=int, default=20)
+    s7.add_argument("--passphrase", help="Unlock using this passphrase instead of device key")
+
+
     args = p.parse_args()
 
     if args.cmd == "device-init":
@@ -256,4 +440,9 @@ if __name__ == "__main__":
         cmd_test_unlock(passphrase=args.passphrase)
     elif args.cmd == "test-unlock-device":
         cmd_test_device_unlock()
-
+    elif args.cmd == "add":
+        cmd_add(site=args.site, username=args.username, notes=args.notes, length=args.length, passphrase=args.passphrase)
+    elif args.cmd == "get":
+        cmd_get(site=args.site, username=args.username, passphrase=args.passphrase)
+    elif args.cmd == "rotate":
+        cmd_rotate(site=args.site, username=args.username, length=args.length, passphrase=args.passphrase)

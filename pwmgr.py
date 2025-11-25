@@ -36,7 +36,7 @@ from nacl.public import PrivateKey, PublicKey, SealedBox
 def b64e(b):
     return base64.b64encode(b).decode("utf-8")
 def b64d(s):
-    return base64.b64decode(s).encode("utf-8")
+    return base64.b64decode(s.encode("utf-8"))
 
 VAULT_DEFAULT_PATH = Path.home() / "vault.kv.json"
 DEVICE_KEY_PATH = Path.home() / ".local" / "share" / "pwmgr" / "device.key"
@@ -116,7 +116,7 @@ def createVault(*, passphrase, devices):
         pub = PublicKey(b64d(dev["pub"]))
         sealed = SealedBox(pub).encrypt(vmk)
         devEntries.append({
-            "device-id": dev["device-id"],
+            "device_id": dev["device_id"],
             "pub": b64e(bytes(pub)),
             "sealed_vmk": b64e(sealed),
         })

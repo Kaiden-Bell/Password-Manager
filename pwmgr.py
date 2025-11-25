@@ -46,12 +46,12 @@ DEVICE_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
 # === KEY CREATION ===
 # ====================
 
-def argon2id_kdf(passphrase, *, salt, mKib = 262_144, t = 3, p = 1, outlen = 32):
+def argon2id_kdf(passphrase, *, salt, m_kib = 262_144, t = 3, p = 1, outlen = 32):
     return hash_secret_raw(
         passphrase.encode("utf-8"),
         salt, 
         t, 
-        mKib, 
+        m_kib, 
         p, 
         outlen,
         Argon2Type.ID,
@@ -66,13 +66,13 @@ def hkdf_subkey(keyMaterial, *, info, outlen = 32):
     )
     return hkdf.derive(keyMaterial)
 
-def aead_encrypt_xchacha(key, plaintext, ad = b""):
+def aead_encrypt_xchacha(key, plaintext, ad=b""):
     nonce = nacl_utils.random(24)
     ct = crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, ad, nonce, key)
     return nonce, ct
 
 def aead_decrypt_xchacha(key, nonce, ct, ad=b""):
-    return crypto_aead_xchacha20poly1305_ietf_encrypt(ct, ad, nonce, key)
+    return crypto_aead_xchacha20poly1305_ietf_decrypt(ct, ad, nonce, key)
 
 
 
@@ -152,7 +152,7 @@ def createVault(*, passphrase, devices):
 def unlockWithPassphrase(vault, passphrase):
     kdf = vault["kdf"]
     salt = b64d(kdf["salt"])
-    kdfKey = argon2id_kdf(passphrase, salt=salt, mKib=["memory-kib"], t=kdf["time_cost"], p=kdf["parallelism"])
+    kdfKey = argon2id_kdf(passphrase, salt=salt, m_kib=kdf["memory_kib"], t=kdf["time_cost"], p=kdf["parallelism"])
     wrapKey = hkdf_subkey(kdfKey, info=b"vmk-wrap-passphrase")
 
     pp = vault["vmk_wrapped"]["passphrase"]
@@ -168,14 +168,14 @@ def unlockWithDevice(vault, privKey):
     myPubB64 = b64e(bytes(sk.public_key))
 
     dentry = None
-    for d in vault["vmk-wrapped"]["devices"]:
+    for d in vault["vmk_wrapped"]["devices"]:
         if d["pub"] == myPubB64:
             dentry = d
             break
     if dentry is None:
         raise RuntimeError("This device is not authorized in the vault!")
     
-    vmk = SealedBox(sk).decrypt(b64d(dentry["sealed-vmk"]))
+    vmk = SealedBox(sk).decrypt(b64d(dentry["sealed_vmk"]))
     v = vault["vault"]
     pt = aead_decrypt_xchacha(vmk, b64d(v["nonce"]), b64d(v["ciphertext"]))
     return vmk, json.loads(pt.decode("utf-8"))
@@ -190,7 +190,7 @@ def genPass(length = 20, *, symbols = True, noLookalikes = True):
     letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     digits = "23456789" if noLookalikes else "0123456789"
     sym = "!@#$%^&*()-_=+[];,.?/|" if symbols else ""
-    lookalikeStrip = "Il100|" if noLookalikes else ""
+    lookalikeStrip = "Il1O0|" if noLookalikes else ""
     alphabet = "".join(ch for ch in (letters + digits + sym) if ch not in lookalikeStrip)
     return "".join(secrets.choice(alphabet) for _ in range(length))
 

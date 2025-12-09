@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Password Manager Web Page Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background: #020617;
+            color: #e5e7eb;
+            margin: 0;
+            padding: 1rem;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .card {
+            background: #111827;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0);
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        label {
+            display: block;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: #9ca3af;
+        }
+
+        input[type="file"],
+        input[type="password"],
+        input[type="text"] {
+            width: 100%;
+            padding: 0.5rem;
+            margin-top: 0.25rem;
+            border-radius: 0.5rem;
+            border: 1px solid #374151;
+            background: #020617;
+            color: #e5e7eb;
+            box-sizing: border-box;
+        }
+
+        button {
+            margin-top: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            border: none;
+            cursor: pointer;
+            background: #2563eb;
+            color: #f9fafb;
+            font-weight: 500;
+        }
+
+        button.secondary {
+            background: #4b5563;
+        }
+
+        button.small {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            margin-left: 0.25rem;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
+        #status {
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: #fbbf24;
+            min-height: 1.2em;
+            white-space: pre-line;
+        }
+
+        #entries {
+            margin-top: 1rem;
+        }
+
+        .entry {
+            border-top: 1px solid #1f2937;
+            padding: 0.75rem 0;
+            font-size: 0.85rem;
+        }
+
+        .entry:first-child {
+            border-top: none;
+        }
+
+        .entry-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+
+        .badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 999px;
+            background: #1d4ed8;
+            color: #e5e7eb;
+            margin-left: 0.25rem;
+        }
+
+        .muted {
+            color: #6b7280;
+            font-size: 0.8rem;
+        }
+
+        .password {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 0.8rem;
+            letter-spacing: 0.03rem;
+        }
+    </style>
+
+    <!-- libsodium-wrappers 0.5.2 (browser build with XChaCha20-Poly1305) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/libsodium-wrappers/0.5.2/sodium.js"
+        integrity="sha512-6i+H3NyzZgrdUkhcjNq1VEo8HLRM8FKaoO+KZEfCrOBmHFGgDFpqgQSzTTKgusmbpaDBJwUOizHan13lY6EjtQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <!-- Argon2 in the browser -->
+    <script src="https://unpkg.com/argon2-browser@1.18.0/dist/argon2-bundled.min.js"></script>
+</head>
+
+<body>
+    <div class="card">
+        <h1>Password Manager Web Viewer</h1>
+        <p class="muted">
+            Decrypts vault files locally in your browser. No data is uploaded. Add/rotate passwords via CLI.
+        </p>
+
+        <label>
+            Vault file: <code>.json</code>
+            <input type="file" id="vaultFile" accept=".json,application/json">
+        </label>
+
+        <label>
+            Master Phrase:
+            <input type="password" id="passphrase" autocomplete="current-password">
+        </label>
+
+        <button id="unlockBtn">Unlock Vault</button>
+        <div id="status"></div>
+    </div>
+
+    <div class="card" id="results" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-size: 1.1rem; margin:0;">Entries</h2>
+            <input type="text" id="filterInput" placeholder="Filter by site / username..." style="max-width: 50%;">
+        </div>
+        <div id="entries"></div>
+    </div>
+
+    <script>
+        let sodiumReady = false;
+        let SOD = null;
+        let decryptedEntries = null;
+
+        // Initialize libsodium once it’s ready
+        (async () => {
+            await sodium.ready;
+            SOD = sodium;
+            sodiumReady = true;
+            console.log("libsodium (CDN, 0.5.2) loaded");
+        })();
+
+        function setStatus(msg, isError = false) {
+            const statusEl = document.getElementById("status");
+            statusEl.textContent = msg || "";
+            statusEl.style.color = isError ? "#f87171" : "#fbbf24";
+        }
+
+        // Base64 helpers using browser APIs (vault uses standard base64)
+        function b64d(str) {
+            const binary = atob(str);
+            const len = binary.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        function b64e(bytes) {
+            let binary = "";
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        // HKDF-SHA256 via Web Crypto, matching Python HKDF(salt=None, info, length=32)
+        async function hkdfSha256(ikm, infoBytes, length) {
+            // HKDF-Extract with salt = 32 zero bytes
+            const salt = new Uint8Array(32);
+
+            // salt as HMAC key
+            const saltKey = await crypto.subtle.importKey(
+                "raw",
+                salt,
+                { name: "HMAC", hash: "SHA-256" },
+                false,
+                ["sign"]
+            );
+
+            // PRK = HMAC(salt, IKM)
+            const prkBuf = await crypto.subtle.sign("HMAC", saltKey, ikm);
+            const prk = new Uint8Array(prkBuf);
+
+            // T1 = HMAC(PRK, info || 0x01)
+            const info1 = new Uint8Array(infoBytes.length + 1);
+            info1.set(infoBytes, 0);
+            info1[infoBytes.length] = 0x01;
+
+            const prkKey = await crypto.subtle.importKey(
+                "raw",
+                prk,
+                { name: "HMAC", hash: "SHA-256" },
+                false,
+                ["sign"]
+            );
+            const tBuf = await crypto.subtle.sign("HMAC", prkKey, info1);
+            const t1 = new Uint8Array(tBuf);
+
+            return t1.slice(0, length);
+        }
+
+        async function unlockVault() {
+            const fileInput = document.getElementById("vaultFile");
+            const passInput = document.getElementById("passphrase");
+            const unlockBtn = document.getElementById("unlockBtn");
+
+            if (!sodiumReady || !SOD) {
+                setStatus("Waiting for crypto libraries to load...", true);
+                return;
+            }
+
+            const file = fileInput.files[0];
+            if (!file) {
+                setStatus("Please select your .json vault file", true);
+                return;
+            }
+
+            const passphrase = passInput.value;
+            if (!passphrase) {
+                setStatus("Please enter your master passphrase", true);
+                return;
+            }
+
+            unlockBtn.disabled = true;
+            setStatus("Reading file...");
+
+            let text;
+            try {
+                text = await file.text();
+            } catch (e) {
+                console.error(e);
+                setStatus("Failed to read file.", true);
+                unlockBtn.disabled = false;
+                return;
+            }
+
+            let vault;
+            try {
+                vault = JSON.parse(text);
+            } catch (e) {
+                console.error(e);
+                setStatus("File is not valid JSON.", true);
+                unlockBtn.disabled = false;
+                return;
+            }
+
+            try {
+                setStatus("Deriving key with Argon2id (this may take a bit)...");
+
+                const kdf = vault.kdf;
+                if (!kdf || typeof kdf.type !== "string" || kdf.type.toLowerCase() !== "argon2id") {
+                    throw new Error("Unsupported KDF type!");
+                }
+
+                const saltBytes = b64d(kdf.salt);
+
+                const argonParams = {
+                    pass: passphrase,
+                    salt: saltBytes,
+                    time: kdf.time_cost || 3,
+                    mem: kdf.memory_kib || 262144,
+                    hashLen: 32,
+                    parallelism: kdf.parallelism || 1,
+                    type: argon2.ArgonType.Argon2id
+                };
+
+                const argonResult = await argon2.hash(argonParams);
+                const kdfKey = argonResult.hash; // Uint8Array
+
+                const info = new TextEncoder().encode("vmk-wrap-passphrase");
+                const wrapKeyBytes = await hkdfSha256(kdfKey, info, 32);
+
+                const S = SOD;
+
+                // ---- unwrap VMK via passphrase ----
+                const ppRoot = vault.vmk_wrapped;
+                if (!ppRoot || !ppRoot.passphrase) {
+                    console.log("Vault object:", vault);
+                    throw new Error("vault.vmk_wrapped.passphrase is missing in JSON");
+                }
+                const pp = ppRoot.passphrase;
+                if (!pp.nonce || !pp.ciphertext) {
+                    console.log("Passphrase wrap entry:", pp);
+                    throw new Error("vmk_wrapped.passphrase missing nonce or ciphertext");
+                }
+
+                const ppNonce = b64d(pp.nonce);
+                const ppCt = b64d(pp.ciphertext);
+
+                const vmk = S.crypto_aead_xchacha20poly1305_ietf_decrypt(
+                    null,
+                    ppCt,
+                    null,
+                    ppNonce,
+                    wrapKeyBytes
+                );
+
+                // ---- decrypt vault contents ----
+                const vRoot = vault.vault;
+                if (!vRoot || !vRoot.nonce || !vRoot.ciphertext) {
+                    console.log("Vault ciphertext entry:", vRoot);
+                    throw new Error("vault.vault missing nonce or ciphertext");
+                }
+
+                const vNonce = b64d(vRoot.nonce);
+                const vCt = b64d(vRoot.ciphertext);
+
+                const pt = S.crypto_aead_xchacha20poly1305_ietf_decrypt(
+                    null,
+                    vCt,
+                    null,
+                    vNonce,
+                    vmk
+                );
+
+                const entries = JSON.parse(new TextDecoder().decode(pt));
+                decryptedEntries = entries;
+                renderEntries(entries.items || []);
+                setStatus("✅ Vault unlocked successfully!");
+                document.getElementById("results").style.display = "block";
+
+
+            } catch (e) {
+                console.error(e);
+                setStatus("Failed to unlock vault: " + e.message, true);
+                decryptedEntries = null;
+                document.getElementById("results").style.display = "none";
+            } finally {
+                unlockBtn.disabled = false;
+            }
+        }
+
+        function renderEntries(items) {
+            const entriesEl = document.getElementById("entries");
+            entriesEl.innerHTML = "";
+
+            if (!items || items.length === 0) {
+                entriesEl.innerHTML = "<p class='muted'>No items in vault.</p>";
+                return;
+            }
+
+            items.forEach((item) => {
+                const div = document.createElement("div");
+                div.className = "entry";
+
+                const header = document.createElement("div");
+                header.className = "entry-header";
+
+                const left = document.createElement("div");
+                left.innerHTML =
+                    `<strong>${item.site || "(no site)"}</strong>` +
+                    (item.username ? ` <span class="badge">${item.username}</span>` : "");
+
+                const right = document.createElement("div");
+                const copyBtn = document.createElement("button");
+                copyBtn.textContent = "Copy";
+                copyBtn.className = "small";
+                copyBtn.onclick = () => copyPassword(item.password);
+
+                const showBtn = document.createElement("button");
+                showBtn.textContent = "Show";
+                showBtn.className = "small secondary";
+
+                const pwdSpan = document.createElement("span");
+                pwdSpan.className = "password";
+                pwdSpan.textContent = "•".repeat((item.password || "").length);
+
+                let visible = false;
+                showBtn.onclick = () => {
+                    visible = !visible;
+                    showBtn.textContent = visible ? "Hide" : "Show";
+                    pwdSpan.textContent = visible
+                        ? (item.password || "")
+                        : "•".repeat((item.password || "").length);
+                };
+
+                right.appendChild(copyBtn);
+                right.appendChild(showBtn);
+
+                header.appendChild(left);
+                header.appendChild(right);
+
+                const pwdLine = document.createElement("div");
+                pwdLine.appendChild(document.createTextNode("Password: "));
+                pwdLine.appendChild(pwdSpan);
+
+                const meta = document.createElement("div");
+                meta.className = "muted";
+                meta.textContent =
+                    `Created: ${item.created || "?"}. Rotated: ${item.last_rotated || "?"}.`;
+
+                div.appendChild(header);
+                div.appendChild(pwdLine);
+                div.appendChild(meta);
+
+                if (item.notes) {
+                    const notes = document.createElement("div");
+                    notes.className = "muted";
+                    notes.textContent = "Notes: " + item.notes;
+                    div.appendChild(notes);
+                }
+
+                entriesEl.appendChild(div);
+            });
+        }
+
+        function copyPassword(pwd) {
+            if (!pwd) return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(pwd).then(
+                    () => setStatus("📋 Password copied to clipboard"),
+                    (err) => {
+                        console.error(err);
+                        setStatus("⚠️ Failed to copy to clipboard", true);
+                    }
+                );
+            } else {
+                const ta = document.createElement("textarea");
+                ta.value = pwd;
+                document.body.appendChild(ta);
+                ta.select();
+
+                try {
+                    document.execCommand("copy");
+                    setStatus("📋 Password copied to clipboard");
+                } catch (e) {
+                    console.error(e);
+                    setStatus("⚠️ Failed to copy to clipboard", true);
+                }
+                document.body.removeChild(ta);
+            }
+        }
+
+        document.getElementById("filterInput").addEventListener("input", (e) => {
+            const q = e.target.value.toLowerCase();
+            if (!decryptedEntries || !decryptedEntries.items) return;
+            const filtered = decryptedEntries.items.filter((item) => {
+                const s = (item.site || "").toLowerCase();
+                const u = (item.username || "").toLowerCase();
+                return s.includes(q) || u.includes(q);
+            });
+            renderEntries(filtered);
+        });
+
+        document.getElementById("unlockBtn").addEventListener("click", unlockVault);
+    </script>
+</body>
+
+</html>

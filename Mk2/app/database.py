@@ -12,11 +12,12 @@ from datetime import datetime, timezone
 from app.config import DATABASE_PATH
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Schema DDL
-# ═══════════════════════════════════════════════════════════════════════════
+# --------
+# Schema |
+# --------
 
 SCHEMA_SQL = """
+
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -111,12 +112,12 @@ CREATE TABLE IF NOT EXISTS access_logs (
 """
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Connection Helper
-# ═══════════════════════════════════════════════════════════════════════════
+# ------------
+# Connection |
+# ------------
 
 def get_connection() -> sqlite3.Connection:
-    """Return a new SQLite connection with row-factory enabled."""
+
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -124,7 +125,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def initialize_database() -> None:
-    """Create all tables if they do not already exist."""
+
     os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
     conn = get_connection()
     try:
@@ -133,40 +134,53 @@ def initialize_database() -> None:
     finally:
         conn.close()
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Timestamp Helper
-# ═══════════════════════════════════════════════════════════════════════════
-
 def _now() -> str:
-    """Return current UTC timestamp as ISO-8601 string."""
+
     return datetime.now(timezone.utc).isoformat()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# User CRUD
-# ═══════════════════════════════════════════════════════════════════════════
+# ------
+# User |
+# ------
 
 def create_user(username: str, display_name: str) -> int:
-    """
-    Insert a new user and return their user_id.
 
-    TODO: Implement INSERT into users table.
-    """
-    raise NotImplementedError("create_user")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO users (username, display_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (username, display_name, _now(), _now()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Vault CRUD
-# ═══════════════════════════════════════════════════════════════════════════
+# -------
+# Vault |
+# -------
 
 def create_vault(user_id: int, vault_name: str) -> int:
-    """
-    Insert a new vault for a user and return the vault_id.
 
-    TODO: Implement INSERT into vaults table.
-    """
-    raise NotImplementedError("create_vault")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO vaults (user_id, vault_name, vault_status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, vault_name, "LOCKED", _now(), _now()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
 
 
 def create_vault_policy(
@@ -175,17 +189,26 @@ def create_vault_policy(
     software_only_enabled: bool = True,
     gate_window_seconds: int = 60,
 ) -> int:
-    """
-    Insert a vault policy row and return the policy_id.
 
-    TODO: Implement INSERT into vault_policy table.
-    """
-    raise NotImplementedError("create_vault_policy")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO vault_policy (vault_id, hardware_gate_required, software_only_enabled, gate_window_seconds, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (vault_id, hardware_gate_required, software_only_enabled, gate_window_seconds, _now(), _now()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Auth Credentials
-# ═══════════════════════════════════════════════════════════════════════════
+# ------------
+# Auth Creds |
+# ------------
 
 def save_auth_credentials(
     vault_id: int,
@@ -194,93 +217,145 @@ def save_auth_credentials(
     wrapped_master_key_nonce: str,
     kdf_params: dict,
 ) -> int:
-    """
-    Store the passphrase-derived auth credentials for a vault.
 
-    kdf_params should contain:
-        kdf_memory_cost, kdf_time_cost, kdf_parallelism
-
-    TODO: Implement INSERT into auth_credentials table.
-    """
-    raise NotImplementedError("save_auth_credentials")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO auth_credentials (vault_id, passphrase_salt, wrapped_master_key, wrapped_master_key_nonce, kdf_name, kdf_memory_cost, kdf_time_cost, kdf_parallelism, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (vault_id, passphrase_salt, wrapped_master_key, wrapped_master_key_nonce, kdf_params["kdf_name"], kdf_params["kdf_memory_cost"], kdf_params["kdf_time_cost"], kdf_params["kdf_parallelism"], _now(), _now()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
 
 
 def load_auth_credentials(vault_id: int) -> dict | None:
-    """
-    Load auth credentials for a vault.
 
-    Returns a dict with keys matching the auth_credentials columns,
-    or None if not found.
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM auth_credentials WHERE vault_id = ?
+            """,
+            (vault_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+    finally:
+        conn.close()
 
-    TODO: Implement SELECT from auth_credentials.
-    """
-    raise NotImplementedError("load_auth_credentials")
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Hardware Auth
-# ═══════════════════════════════════════════════════════════════════════════
+# ----------
+# Hardware |
+# ----------
 
 def save_hardware_auth(
     vault_id: int,
     keypad_pin_hash: str,
     keypad_pin_salt: str,
 ) -> int:
-    """
-    Store the hashed keypad PIN for a vault.
 
-    TODO: Implement INSERT into hardware_auth table.
-    """
-    raise NotImplementedError("save_hardware_auth")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO hardware_auth (vault_id, keypad_pin_hash, keypad_pin_salt, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (vault_id, keypad_pin_hash, keypad_pin_salt, _now(), _now()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
 
 
 def load_hardware_auth(vault_id: int) -> dict | None:
-    """
-    Load hardware auth record for a vault.
 
-    Returns a dict or None if not found.
-
-    TODO: Implement SELECT from hardware_auth.
-    """
-    raise NotImplementedError("load_hardware_auth")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM hardware_auth WHERE vault_id = ?
+            """,
+            (vault_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+    finally:
+        conn.close()
 
 
 def increment_failed_pin_attempts(vault_id: int) -> None:
-    """
-    Increment the failed_attempts counter in hardware_auth.
 
-    TODO: Implement UPDATE on hardware_auth.
-    """
-    raise NotImplementedError("increment_failed_pin_attempts")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE hardware_auth SET failed_attempts = failed_attempts + 1 WHERE vault_id = ?
+            """,
+            (vault_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def reset_failed_pin_attempts(vault_id: int) -> None:
-    """
-    Reset the failed_attempts counter to 0 and update last_success_at.
 
-    TODO: Implement UPDATE on hardware_auth.
-    """
-    raise NotImplementedError("reset_failed_pin_attempts")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE hardware_auth SET failed_attempts = 0, last_success_at = ? WHERE vault_id = ?
+            """,
+            (_now(), vault_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Vault Policy
-# ═══════════════════════════════════════════════════════════════════════════
+# --------------
+# Vault Policy |
+# --------------
 
 def load_vault_policy(vault_id: int) -> dict | None:
-    """
-    Load the vault policy for a vault.
 
-    Returns a dict or None if not found.
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM vault_policy WHERE vault_id = ?
+            """,
+            (vault_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+    finally:
+        conn.close()
 
-    TODO: Implement SELECT from vault_policy.
-    """
-    raise NotImplementedError("load_vault_policy")
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Vault Data (Encrypted Blob)
-# ═══════════════════════════════════════════════════════════════════════════
+# ----------------------
+# Vault Data Encrypted |
+# ----------------------
 
 def save_vault_data(
     vault_id: int,
@@ -288,23 +363,40 @@ def save_vault_data(
     nonce: str,
     algorithm: str = "xchacha20-poly1305",
 ) -> int:
-    """
-    Store the encrypted vault blob.
 
-    TODO: Implement INSERT into vault_data table.
-    """
-    raise NotImplementedError("save_vault_data")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO vault_data (vault_id, encrypted_blob, nonce, algorithm, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (vault_id, encrypted_blob, nonce, algorithm, _now(), _now()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
 
 
 def load_vault_data(vault_id: int) -> dict | None:
-    """
-    Load the encrypted vault blob for a vault.
 
-    Returns a dict or None if not found.
-
-    TODO: Implement SELECT from vault_data.
-    """
-    raise NotImplementedError("load_vault_data")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM vault_data WHERE vault_id = ?
+            """,
+            (vault_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+    finally:
+        conn.close()
 
 
 def update_vault_data(
@@ -312,17 +404,24 @@ def update_vault_data(
     encrypted_blob: str,
     nonce: str,
 ) -> None:
-    """
-    Update the encrypted vault blob after a credential mutation.
 
-    TODO: Implement UPDATE on vault_data.
-    """
-    raise NotImplementedError("update_vault_data")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE vault_data SET encrypted_blob = ?, nonce = ?, algorithm = ?, updated_at = ? WHERE vault_id = ?
+            """,
+            (encrypted_blob, nonce, "xchacha20-poly1305", _now(), vault_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Access Logs
-# ═══════════════════════════════════════════════════════════════════════════
+# -------------
+# Access Logs |
+# -------------
 
 def write_access_log(
     vault_id: int | None,
@@ -332,9 +431,18 @@ def write_access_log(
     success: bool,
     details: str | None = None,
 ) -> int:
-    """
-    Write an entry to the access_logs table.
 
-    TODO: Implement INSERT into access_logs.
-    """
-    raise NotImplementedError("write_access_log")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO access_logs (vault_id, user_id, event_type, auth_method, success, details, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (vault_id, user_id, event_type, auth_method, success, details, _now()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()

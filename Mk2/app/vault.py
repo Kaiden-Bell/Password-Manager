@@ -1,130 +1,179 @@
 """
-app.vault
-─────────
-High-level vault file operations.
+vault.py — Vault data operations.
 
-Each user gets a separate vault file stored as JSON under the configured
-vault directory.  The file format is::
+Manages the plaintext vault data structure and re-encryption after mutations.
+Vault data format:
 
     {
-        "nonce": "<base64>",
-        "ciphertext": "<base64>"
-    }
-
-The *ciphertext* is AES-256-GCM encrypted JSON containing the user's
-stored credentials::
-
-    {
-        "credentials": [
+        "entries": [
             {
-                "service": "GitHub",
-                "username": "kbell",
-                "password": "hunter2",
-                "created_at": "2026-04-08T22:00:00Z"
-            },
-            ...
+                "entry_id": 0,
+                "site": "github.com",
+                "username": "example_user",
+                "password": "example_password",
+                "last_rotated": "2026-04-25"
+            }
         ]
     }
+
+Notes:
+    - All mutation functions require an unlocked session or master key.
+    - After any add/update/delete, the vault data must be re-encrypted
+      and saved to the database.
 """
 
-from __future__ import annotations
-
-import base64
 import json
-import os
-from datetime import datetime, timezone
-from pathlib import Path
 
-from app.crypto import decrypt_vault, encrypt_vault
+# from app import crypto, database, session
+# from app.password_utils import current_date_string
 
 
-# ── Vault CRUD ────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# Vault Creation
+# ═══════════════════════════════════════════════════════════════════════════
 
-def create_vault(vault_dir: str, vault_filename: str, master_key: bytes) -> str:
+def create_empty_vault() -> dict:
     """
-    Create a new, empty vault file.
+    Return a new, empty vault data structure.
 
-    Returns the absolute path of the created vault file.
+    Returns:
+        {"entries": []}
+
+    TODO: Return the empty vault dict.
     """
-    vault_path = _resolve_path(vault_dir, vault_filename)
-    empty_payload = json.dumps({"credentials": []}).encode("utf-8")
-    _write_encrypted(vault_path, empty_payload, master_key)
-    return str(vault_path)
+    raise NotImplementedError("create_empty_vault")
 
 
-def read_vault(vault_dir: str, vault_filename: str, master_key: bytes) -> dict:
+# ═══════════════════════════════════════════════════════════════════════════
+# Load / Save
+# ═══════════════════════════════════════════════════════════════════════════
+
+def load_decrypted_vault(vault_id: int, master_key: bytes) -> dict:
     """
-    Decrypt and return the vault contents as a Python dict.
+    Load and decrypt vault data from the database.
 
-    Raises ``FileNotFoundError`` if the vault file is missing.
+    Steps:
+        1. Load encrypted blob from database.load_vault_data(vault_id).
+        2. Decrypt via crypto.decrypt_xchacha20_poly1305().
+        3. Parse JSON bytes into dict.
+
+    Returns:
+        Decrypted vault data dict.
+
+    TODO: Implement load + decrypt + parse.
     """
-    vault_path = _resolve_path(vault_dir, vault_filename)
-    plaintext = _read_encrypted(vault_path, master_key)
-    return json.loads(plaintext)
+    raise NotImplementedError("load_decrypted_vault")
 
 
-def write_vault(
-    vault_dir: str,
-    vault_filename: str,
+def save_decrypted_vault(
+    vault_id: int,
+    vault_data: dict,
     master_key: bytes,
-    data: dict,
 ) -> None:
-    """Re-encrypt and overwrite the vault file with new data."""
-    vault_path = _resolve_path(vault_dir, vault_filename)
-    payload = json.dumps(data, indent=2).encode("utf-8")
-    _write_encrypted(vault_path, payload, master_key)
+    """
+    Encrypt and save vault data to the database.
 
+    Steps:
+        1. Serialize vault_data to JSON bytes.
+        2. Encrypt via crypto.encrypt_xchacha20_poly1305().
+        3. Save via database.update_vault_data().
+
+    TODO: Implement serialize + encrypt + save.
+    """
+    raise NotImplementedError("save_decrypted_vault")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Credential CRUD
+# ═══════════════════════════════════════════════════════════════════════════
 
 def add_credential(
-    vault_dir: str,
-    vault_filename: str,
-    master_key: bytes,
-    service: str,
+    vault_id: int,
+    site: str,
     username: str,
     password: str,
 ) -> dict:
     """
-    Append a credential to the vault and return the updated vault dict.
+    Add a new credential entry to the vault.
+
+    Steps:
+        1. Get the current session for vault_id.
+        2. Read decrypted_vault from session.
+        3. Assign a new entry_id (max existing + 1, or 0).
+        4. Append the new entry with current date as last_rotated.
+        5. Re-encrypt and save via save_decrypted_vault().
+        6. Update the session's decrypted_vault.
+
+    Returns:
+        The newly created entry dict.
+
+    TODO: Implement add + re-encrypt flow.
     """
-    data = read_vault(vault_dir, vault_filename, master_key)
-
-    credential = {
-        "service": service,
-        "username": username,
-        "password": password,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    data.setdefault("credentials", []).append(credential)
-
-    write_vault(vault_dir, vault_filename, master_key, data)
-    return data
+    raise NotImplementedError("add_credential")
 
 
-# ── Internal helpers ──────────────────────────────
+def update_credential(
+    vault_id: int,
+    entry_id: int,
+    site: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+) -> dict:
+    """
+    Update an existing credential entry.
 
-def _resolve_path(vault_dir: str, filename: str) -> Path:
-    """Ensure the vault directory exists and return the full path."""
-    path = Path(vault_dir)
-    path.mkdir(parents=True, exist_ok=True)
-    return path / filename
+    Steps:
+        1. Get the current session for vault_id.
+        2. Find the entry by entry_id.
+        3. Update only the provided fields.
+        4. If password changed, update last_rotated.
+        5. Re-encrypt and save.
+        6. Update the session's decrypted_vault.
+
+    Returns:
+        The updated entry dict.
+
+    Raises:
+        ValueError: If entry_id is not found.
+
+    TODO: Implement update + re-encrypt flow.
+    """
+    raise NotImplementedError("update_credential")
 
 
-def _write_encrypted(path: Path, plaintext: bytes, master_key: bytes) -> None:
-    """Encrypt plaintext and write the JSON envelope to disk."""
-    nonce, ciphertext = encrypt_vault(plaintext, master_key)
-    envelope = {
-        "nonce": base64.b64encode(nonce).decode("ascii"),
-        "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
-    }
-    path.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
+def delete_credential(vault_id: int, entry_id: int) -> dict:
+    """
+    Delete a credential entry from the vault.
+
+    Steps:
+        1. Get the current session for vault_id.
+        2. Remove the entry with matching entry_id.
+        3. Re-encrypt and save.
+        4. Update the session's decrypted_vault.
+
+    Returns:
+        The deleted entry dict.
+
+    Raises:
+        ValueError: If entry_id is not found.
+
+    TODO: Implement delete + re-encrypt flow.
+    """
+    raise NotImplementedError("delete_credential")
 
 
-def _read_encrypted(path: Path, master_key: bytes) -> bytes:
-    """Read the JSON envelope from disk and decrypt."""
-    if not path.exists():
-        raise FileNotFoundError(f"Vault file not found: {path}")
+def search_credentials(vault_id: int, query: str) -> list[dict]:
+    """
+    Search vault credentials by site or username.
 
-    envelope = json.loads(path.read_text(encoding="utf-8"))
-    nonce = base64.b64decode(envelope["nonce"])
-    ciphertext = base64.b64decode(envelope["ciphertext"])
-    return decrypt_vault(ciphertext, nonce, master_key)
+    Steps:
+        1. Get the current session for vault_id.
+        2. Filter entries where query appears in site or username
+           (case-insensitive).
+
+    Returns:
+        List of matching entry dicts.
+
+    TODO: Implement search logic.
+    """
+    raise NotImplementedError("search_credentials")

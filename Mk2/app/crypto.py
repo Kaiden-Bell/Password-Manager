@@ -1,112 +1,154 @@
 """
-app.crypto
-──────────
-Cryptographic primitives for The Vault.
+crypto.py — Core cryptographic operations.
 
-- Key derivation  : PBKDF2-HMAC-SHA256
-- Key wrapping    : AES-256-GCM (wrapping key encrypts master key)
-- Vault encryption: AES-256-GCM (master key encrypts vault payload)
+Uses argon2-cffi for key derivation and PyNaCl for symmetric encryption.
+
+Security Notes:
+    - All values stored in SQLite are base64-encoded strings.
+    - Use XChaCha20-Poly1305 (via PyNaCl SecretBox) for AEAD encryption.
+    - Wrong passphrase must fail cleanly (CryptoError).
+    - Tampered ciphertext must fail cleanly (CryptoError).
 """
 
-from __future__ import annotations
-
+import base64
+import hashlib
 import os
 
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from argon2.low_level import hash_secret_raw, Type
+from nacl.secret import SecretBox
+from nacl.utils import random as nacl_random
+from nacl.exceptions import CryptoError
+
+from app.config import (
+    ARGON2_MEMORY_COST,
+    ARGON2_TIME_COST,
+    ARGON2_PARALLELISM,
+    KEY_LENGTH,
+)
 
 
-# ── Constants ─────────────────────────────────────
+# ------------  
+# Random gen |
+# ------------
 
-KEY_LENGTH = 32          # 256-bit keys
-SALT_LENGTH = 32         # 256-bit salts
-NONCE_LENGTH = 12        # 96-bit nonces (AES-GCM standard)
-DEFAULT_KDF_ITERATIONS = 600_000
+def generate_salt() -> bytes:
+
+    salt = os.urandom(16)
+
+    return salt
+
+def generate_nonce() -> bytes:
+
+    nonce = os.urandom(24)
+
+    return nonce
+
+def generate_master_key() -> bytes:
+
+    master_key = os.urandom(KEY_LENGTH)
+
+    return master_key
 
 
-# ── Key Derivation ────────────────────────────────
+# ---------
+# Key Gen |
+# ---------
 
-def derive_key(
+def derive_key_argon2id(
     secret: str | bytes,
     salt: bytes,
-    iterations: int = DEFAULT_KDF_ITERATIONS,
+    memory_cost: int = ARGON2_MEMORY_COST,
+    time_cost: int = ARGON2_TIME_COST,
+    parallelism: int = ARGON2_PARALLELISM,
+    key_length: int = KEY_LENGTH,
 ) -> bytes:
-    """
-    Derive a 256-bit wrapping key from a secret (PIN or passphrase)
-    using PBKDF2-HMAC-SHA256.
-    """
+
     if isinstance(secret, str):
         secret = secret.encode("utf-8")
 
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=KEY_LENGTH,
+    derived_key = hash_secret_raw(
+        secret=secret,
         salt=salt,
-        iterations=iterations,
+        time_cost=time_cost,
+        memory_cost=memory_cost,
+        parallelism=parallelism,
+        hash_len=key_length,
+        type=Type.ID,
     )
-    return kdf.derive(secret)
+
+    return derived_key
 
 
-# ── Master Key Management ─────────────────────────
+# ---------------------------------
+# Encryption — XChaCha20-Poly1305 |
+# ---------------------------------
 
-def generate_master_key() -> bytes:
-    """Generate a cryptographically random 256-bit vault master key."""
-    return os.urandom(KEY_LENGTH)
+def encrypt_xchacha20_poly1305(
+    plaintext_bytes: bytes,
+    key: bytes,
+) -> tuple[str, str]:
 
+    box = SecretBox(key)
+    nonce = nacl_random(box.NONCE_SIZE)
+    encrypted = box.encrypt(plaintext_bytes, nonce)
 
-def generate_salt() -> bytes:
-    """Generate a cryptographically random salt."""
-    return os.urandom(SALT_LENGTH)
+    ciphertext_only = encrypted.ciphertext
 
-
-# ── Key Wrapping (AES-GCM) ───────────────────────
-
-def wrap_key(master_key: bytes, wrapping_key: bytes) -> bytes:
-    """
-    Encrypt (wrap) the vault master key with a wrapping key
-    derived from the user's PIN or passphrase.
-
-    Returns a blob:  nonce (12 B) || ciphertext+tag
-    """
-    nonce = os.urandom(NONCE_LENGTH)
-    aesgcm = AESGCM(wrapping_key)
-    ct = aesgcm.encrypt(nonce, master_key, associated_data=None)
-    return nonce + ct
+    return base64.b64encode(ciphertext_only).decode("utf-8"), base64.b64encode(nonce).decode("utf-8")
 
 
-def unwrap_key(wrapped_blob: bytes, wrapping_key: bytes) -> bytes:
-    """
-    Decrypt (unwrap) the vault master key.
+def decrypt_xchacha20_poly1305(
+    ciphertext_b64: str,
+    nonce_b64: str,
+    key: bytes,
+) -> bytes:
 
-    Raises ``cryptography.exceptions.InvalidTag`` if the wrapping key
-    is wrong (i.e. wrong PIN or passphrase).
-    """
-    nonce = wrapped_blob[:NONCE_LENGTH]
-    ct = wrapped_blob[NONCE_LENGTH:]
-    aesgcm = AESGCM(wrapping_key)
-    return aesgcm.decrypt(nonce, ct, associated_data=None)
+    box = SecretBox(key)
+    ciphertext = base64.b64decode(ciphertext_b64)
+    nonce = base64.b64decode(nonce_b64)
 
+    decrypted = box.decrypt(ciphertext, nonce)
 
-# ── Vault Payload Encryption ─────────────────────
-
-def encrypt_vault(data: bytes, master_key: bytes) -> tuple[bytes, bytes]:
-    """
-    Encrypt raw vault data with the master key (AES-256-GCM).
-
-    Returns ``(nonce, ciphertext_with_tag)``.
-    """
-    nonce = os.urandom(NONCE_LENGTH)
-    aesgcm = AESGCM(master_key)
-    ct = aesgcm.encrypt(nonce, data, associated_data=None)
-    return nonce, ct
+    return decrypted
 
 
-def decrypt_vault(ciphertext: bytes, nonce: bytes, master_key: bytes) -> bytes:
-    """
-    Decrypt vault data previously encrypted with ``encrypt_vault``.
+# -----------------
+# Master Key Wrap |
+# -----------------
 
-    Raises ``cryptography.exceptions.InvalidTag`` on tamper / wrong key.
-    """
-    aesgcm = AESGCM(master_key)
-    return aesgcm.decrypt(nonce, ciphertext, associated_data=None)
+def wrap_master_key(
+    master_key: bytes,
+    wrapping_key: bytes,
+) -> tuple[str, str]:
+
+    return encrypt_xchacha20_poly1305(master_key, wrapping_key)
+
+
+def unwrap_master_key(
+    wrapped_master_key_b64: str,
+    nonce_b64: str,
+    wrapping_key: bytes,
+) -> bytes:
+
+    try:
+        return decrypt_xchacha20_poly1305(wrapped_master_key_b64, nonce_b64, wrapping_key)
+    except CryptoError:
+        raise
+
+
+# -------------------------------
+# Keypad PIN (Hardware Hashing) |
+# -------------------------------
+
+def hash_keypad_pin(pin: str, salt: bytes) -> str:
+
+    return hashlib.sha256(salt + pin.encode()).hexdigest()
+
+
+def verify_keypad_pin(
+    pin_attempt: str,
+    stored_hash: str,
+    salt: bytes,
+) -> bool:
+
+    return hash_keypad_pin(pin_attempt, salt) == stored_hash

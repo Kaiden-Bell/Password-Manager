@@ -1,114 +1,130 @@
 """
-app.models
-──────────
-SQLAlchemy ORM models for The Vault.
+models.py — Pydantic v2 request/response models for the API.
 
-Tables
-------
-- User          — identity + passphrase verification metadata
-- RFIDTag       — RFID UID + PIN verification metadata (linked to a user)
-- AuditLog      — timestamped security events
-- VaultMeta     — per-user vault references and wrapped master-key blobs
+These models define the contract between frontend and backend.
 """
 
-from __future__ import annotations
-
-from datetime import datetime, timezone
-
-from sqlalchemy import (
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    LargeBinary,
-)
-from sqlalchemy.orm import DeclarativeBase, relationship
+from pydantic import BaseModel, Field
 
 
-# ── Base class ────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# Request Models
+# ═══════════════════════════════════════════════════════════════════════════
 
-class Base(DeclarativeBase):
-    """Shared declarative base for all models."""
-    pass
-
-
-# ── Models ────────────────────────────────────────
-
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    username = Column(String(64), unique=True, nullable=False, index=True)
-    passphrase_hash = Column(LargeBinary, nullable=True)   # scrypt / PBKDF2 digest
-    passphrase_salt = Column(LargeBinary, nullable=True)   # random salt
-    created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    # Relationships
-    rfid_tags = relationship("RFIDTag", back_populates="user", cascade="all, delete-orphan")
-    audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
-    vault_meta = relationship("VaultMeta", back_populates="user", uselist=False, cascade="all, delete-orphan")
-
-    def __repr__(self) -> str:
-        return f"<User id={self.id} username={self.username!r}>"
+class InitRequest(BaseModel):
+    """POST /api/init — Initialize a new vault."""
+    username: str
+    display_name: str
+    vault_name: str
+    passphrase: str
+    keypad_pin: str | None = None                  # Optional 6-digit PIN
+    hardware_gate_required: bool = False
+    software_only_enabled: bool = True
 
 
-class RFIDTag(Base):
-    __tablename__ = "rfid_tags"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    uid_hex = Column(String(32), unique=True, nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    pin_hash = Column(LargeBinary, nullable=False)
-    pin_salt = Column(LargeBinary, nullable=False)
-    registered_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    # Relationships
-    user = relationship("User", back_populates="rfid_tags")
-
-    def __repr__(self) -> str:
-        return f"<RFIDTag id={self.id} uid={self.uid_hex!r} user_id={self.user_id}>"
+class PassphraseUnlockRequest(BaseModel):
+    """POST /api/unlock/passphrase — Hardware-gated unlock."""
+    vault_id: int
+    passphrase: str
 
 
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    event = Column(String(128), nullable=False)
-    detail = Column(Text, nullable=True)
-    timestamp = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    # Relationships
-    user = relationship("User", back_populates="audit_logs")
-
-    def __repr__(self) -> str:
-        return f"<AuditLog id={self.id} event={self.event!r}>"
+class SoftwareUnlockRequest(BaseModel):
+    """POST /api/unlock/software — Software-only unlock."""
+    vault_id: int
+    passphrase: str
 
 
-class VaultMeta(Base):
-    __tablename__ = "vault_meta"
+class AddEntryRequest(BaseModel):
+    """POST /api/entries — Add a new credential."""
+    site: str
+    username: str
+    password: str
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    vault_file = Column(String(256), nullable=False)            # relative path under vault_dir
 
-    # Wrapped copies of the vault master key — one per auth path
-    wrapped_key_rfid = Column(LargeBinary, nullable=True)       # wrapped with PIN-derived key
-    wrapped_key_passphrase = Column(LargeBinary, nullable=True)  # wrapped with passphrase-derived key
+class UpdateEntryRequest(BaseModel):
+    """PUT /api/entries/{entry_id} — Update a credential."""
+    site: str | None = None
+    username: str | None = None
+    password: str | None = None
 
-    master_salt = Column(LargeBinary, nullable=False)            # shared KDF salt
-    algorithm = Column(String(32), default="AES-256-GCM", nullable=False)
 
-    # Relationships
-    user = relationship("User", back_populates="vault_meta")
+class GeneratePasswordRequest(BaseModel):
+    """POST /api/password/generate — Generate a random password."""
+    length: int = Field(default=16, ge=8, le=128)
+    use_upper: bool = True
+    use_lower: bool = True
+    use_digits: bool = True
+    use_symbols: bool = True
 
-    def __repr__(self) -> str:
-        return f"<VaultMeta id={self.id} user_id={self.user_id} file={self.vault_file!r}>"
+
+class CheckPasswordRequest(BaseModel):
+    """POST /api/password/check — Check password strength."""
+    password: str
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Response Models
+# ═══════════════════════════════════════════════════════════════════════════
+
+class MessageResponse(BaseModel):
+    """Generic success/error message."""
+    message: str
+    success: bool = True
+
+
+class StatusResponse(BaseModel):
+    """GET /api/status — Current vault status."""
+    is_locked: bool
+    vault_id: int | None = None
+    user_id: int | None = None
+    auth_method: str | None = None
+    hardware_gate_required: bool = False
+    software_only_enabled: bool = True
+    passphrase_window_active: bool = False
+    passphrase_window_seconds_remaining: float = 0.0
+
+
+class EntryResponse(BaseModel):
+    """Single credential entry."""
+    entry_id: int
+    site: str
+    username: str
+    password: str
+    last_rotated: str
+
+
+class EntriesListResponse(BaseModel):
+    """GET /api/entries — List of credential entries."""
+    entries: list[EntryResponse]
+    count: int
+
+
+class GeneratePasswordResponse(BaseModel):
+    """POST /api/password/generate — Generated password result."""
+    password: str
+    length: int
+
+
+class CheckPasswordResponse(BaseModel):
+    """POST /api/password/check — Password strength result."""
+    score: int = Field(ge=0, le=4, description="0=very weak, 4=very strong")
+    label: str
+    feedback: list[str]
+
+
+class LogEntry(BaseModel):
+    """Single access log entry."""
+    log_id: int
+    vault_id: int | None
+    user_id: int | None
+    event_type: str
+    auth_method: str | None
+    success: bool
+    details: str | None
+    timestamp: str
+
+
+class LogsResponse(BaseModel):
+    """GET /api/logs — Access log listing."""
+    logs: list[LogEntry]
+    count: int

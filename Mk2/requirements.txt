@@ -1,5 +1,5 @@
-flask>=3.0,<4.0
-sqlalchemy>=2.0,<3.0
-pyserial>=3.5,<4.0
-cryptography>=42.0,<44.0
-python-dotenv>=1.0,<2.0
+fastapi
+uvicorn[standard]
+pyserial
+argon2-cffi
+pynacl

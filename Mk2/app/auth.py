@@ -1,130 +1,178 @@
 """
-app.auth
-────────
-Authentication logic for The Vault.
+auth.py — Auth Service
 
-Two independent paths lead to the same result — an unwrapped vault master key:
+Manages vault init + unlock seq.
+auth.py -> crypto, database, session, and vault modules.
 
-1. RFID + PIN    →  look up RFIDTag by UID, verify PIN, unwrap via wrapped_key_rfid
-2. Username + Passphrase  →  look up User, verify passphrase, unwrap via wrapped_key_passphrase
+Security:
+    - "Hardware mode" reqs a passphrase window to unlock.
+    - "Software-only mode" works ONLY if vault was initalized without passcode.
+    - Unlocking => passphrase -> wrapping key -> unwrap master key -> decrypt vault data -> create session.
+    - Never store raw passphrases or PINs.
 """
 
-from __future__ import annotations
-
-from sqlalchemy.orm import Session
-
-from app.crypto import derive_key, unwrap_key
-from app.models import AuditLog, RFIDTag, User, VaultMeta
-
-
-class AuthError(Exception):
-    """Raised when authentication fails."""
-    pass
+# from app import crypto, database, session, vault
+# from app.config import (
+#     ARGON2_MEMORY_COST,
+#     ARGON2_TIME_COST,
+#     ARGON2_PARALLELISM,
+#     KEY_LENGTH,
+# )
 
 
-# ── Low-level verification ────────────────────────
+# # -------------
+# Vault Init
+# # -------------
 
-def verify_pin(tag: RFIDTag, pin: str, iterations: int = 600_000) -> bool:
-    """Return True if *pin* matches the stored hash on *tag*."""
-    derived = derive_key(pin, tag.pin_salt, iterations)
-    return derived == tag.pin_hash
-
-
-def verify_passphrase(user: User, passphrase: str, iterations: int = 600_000) -> bool:
-    """Return True if *passphrase* matches the stored hash on *user*."""
-    if user.passphrase_hash is None or user.passphrase_salt is None:
-        return False
-    derived = derive_key(passphrase, user.passphrase_salt, iterations)
-    return derived == user.passphrase_hash
-
-
-# ── High-level auth flows ─────────────────────────
-
-def authenticate_rfid_pin(
-    uid_hex: str,
-    pin: str,
-    session: Session,
-    iterations: int = 600_000,
-) -> tuple[User, bytes]:
-    """
-    Authenticate via RFID UID + PIN.
-
-    Returns ``(user, master_key)`` on success.
-    Raises ``AuthError`` on failure.
-    """
-    tag = session.query(RFIDTag).filter_by(uid_hex=uid_hex.upper()).first()
-    if tag is None:
-        _log_event(session, None, "AUTH_RFID_FAIL", f"Unknown UID {uid_hex}")
-        raise AuthError("RFID tag not registered.")
-
-    if not verify_pin(tag, pin, iterations):
-        _log_event(session, tag.user_id, "AUTH_PIN_FAIL", f"Bad PIN for UID {uid_hex}")
-        raise AuthError("Invalid PIN.")
-
-    user = tag.user
-    vault_meta: VaultMeta | None = user.vault_meta
-    if vault_meta is None or vault_meta.wrapped_key_rfid is None:
-        raise AuthError("No vault configured for this user (RFID path).")
-
-    # Derive wrapping key from PIN + master_salt, then unwrap
-    wrapping_key = derive_key(pin, vault_meta.master_salt, iterations)
-    try:
-        master_key = unwrap_key(vault_meta.wrapped_key_rfid, wrapping_key)
-    except Exception as exc:
-        _log_event(session, user.id, "AUTH_UNWRAP_FAIL", str(exc))
-        raise AuthError("Failed to unwrap vault key.") from exc
-
-    _log_event(session, user.id, "AUTH_RFID_OK", f"UID {uid_hex}")
-    return user, master_key
-
-
-def authenticate_passphrase(
+def initialize_vault(
     username: str,
+    display_name: str,
+    vault_name: str,
     passphrase: str,
-    session: Session,
-    iterations: int = 600_000,
-) -> tuple[User, bytes]:
+    keypad_pin: str | None = None,
+    hardware_gate_required: bool = False,
+    software_only_enabled: bool = True,
+) -> dict:
     """
-    Authenticate via username + passphrase (fallback / recovery path).
+    Full vault initialization flow.
 
-    Returns ``(user, master_key)`` on success.
-    Raises ``AuthError`` on failure.
+    Steps:
+        1. Create user via database.create_user().
+        2. Create vault via database.create_vault().
+        3. Create vault policy via database.create_vault_policy().
+        4. Generate a random vault master key via crypto.generate_master_key().
+        5. Generate a passphrase salt via crypto.generate_salt().
+        6. Derive wrapping key via crypto.derive_key_argon2id(passphrase, salt).
+        7. Wrap master key via crypto.wrap_master_key().
+        8. Save auth credentials via database.save_auth_credentials().
+        9. If keypad_pin is provided:
+           a. Generate PIN salt.
+           b. Hash PIN via crypto.hash_keypad_pin().
+           c. Save via database.save_hardware_auth().
+        10. Create empty vault data via vault.create_empty_vault().
+        11. Encrypt empty vault via crypto.encrypt_xchacha20_poly1305().
+        12. Save encrypted vault via database.save_vault_data().
+        13. Write access log.
+
+    Returns:
+        Dict with user_id, vault_id, and success status.
+
+    TODO: Implement the full flow described above.
     """
-    user = session.query(User).filter_by(username=username).first()
-    if user is None:
-        _log_event(session, None, "AUTH_PASS_FAIL", f"Unknown user {username!r}")
-        raise AuthError("User not found.")
-
-    if not verify_passphrase(user, passphrase, iterations):
-        _log_event(session, user.id, "AUTH_PASS_FAIL", "Bad passphrase")
-        raise AuthError("Invalid passphrase.")
-
-    vault_meta: VaultMeta | None = user.vault_meta
-    if vault_meta is None or vault_meta.wrapped_key_passphrase is None:
-        raise AuthError("No vault configured for this user (passphrase path).")
-
-    wrapping_key = derive_key(passphrase, vault_meta.master_salt, iterations)
-    try:
-        master_key = unwrap_key(vault_meta.wrapped_key_passphrase, wrapping_key)
-    except Exception as exc:
-        _log_event(session, user.id, "AUTH_UNWRAP_FAIL", str(exc))
-        raise AuthError("Failed to unwrap vault key.") from exc
-
-    _log_event(session, user.id, "AUTH_PASS_OK", f"User {username!r}")
-    return user, master_key
+    raise NotImplementedError("initialize_vault")
 
 
-# ── Helpers ────────────────────────────────────────
+# # -------------
+# Hardware PIN
+# # -------------
 
-def _log_event(
-    session: Session,
-    user_id: int | None,
-    event: str,
-    detail: str = "",
-) -> None:
-    """Insert an audit-log row (best-effort, won't raise)."""
-    try:
-        session.add(AuditLog(user_id=user_id, event=event, detail=detail))
-        session.flush()
-    except Exception:
-        pass  # logging failures must never block auth
+
+def verify_hardware_pin(vault_id: int, pin_attempt: str) -> bool:
+    """
+    Verify a keypad PIN attempt against the stored hash.
+
+    Steps:
+        1. Load hardware_auth from database.
+        2. Decode the stored salt.
+        3. Call crypto.verify_keypad_pin().
+        4. If valid: reset failed attempts, open passphrase window.
+        5. If invalid: increment failed attempts, return False.
+
+    Returns:
+        True if the PIN is correct.
+
+    TODO: Implement PIN verification flow.
+    """
+    raise NotImplementedError("verify_hardware_pin")
+
+
+# # -------------
+# Passphrase Seq
+# # -------------
+
+
+def open_passphrase_window(vault_id: int) -> None:
+    """
+    Open the temporary passphrase-entry window for a vault.
+
+    Delegates to session.open_passphrase_window().
+
+    TODO: Call session.open_passphrase_window(vault_id).
+    """
+    raise NotImplementedError("open_passphrase_window")
+
+
+def is_passphrase_window_active(vault_id: int) -> bool:
+    """
+    Check whether the passphrase window is currently open.
+
+    Delegates to session.is_passphrase_window_active().
+
+    TODO: Call and return session.is_passphrase_window_active(vault_id).
+    """
+    raise NotImplementedError("is_passphrase_window_active")
+
+
+# # -------------
+# Unlock Seq
+# -------------
+
+def unlock_with_passphrase(
+    vault_id: int,
+    passphrase: str,
+    auth_method: str = "hardware_gated",
+) -> dict:
+    """
+    Hardware-gated passphrase unlock.
+
+    Precondition: passphrase window MUST be active.
+
+    Steps:
+        1. Verify passphrase window is active.
+        2. Load auth credentials from database.
+        3. Decode the passphrase salt.
+        4. Derive wrapping key via crypto.derive_key_argon2id().
+        5. Unwrap master key via crypto.unwrap_master_key().
+        6. Decrypt vault data via vault.load_decrypted_vault().
+        7. Create session via session.create_session().
+        8. Write access log.
+
+    Returns:
+        Dict with success status.
+
+    Raises:
+        ValueError: If passphrase window is not active.
+        CryptoError: If passphrase is incorrect.
+
+    TODO: Implement the hardware-gated unlock flow.
+    """
+    raise NotImplementedError("unlock_with_passphrase")
+
+
+def unlock_software_only(vault_id: int, passphrase: str) -> dict:
+    """
+    Software-only passphrase unlock.
+
+    Precondition: vault policy must allow software-only mode.
+
+    Steps:
+        1. Load vault policy from database.
+        2. Verify software_only_enabled is True.
+        3. Load auth credentials from database.
+        4. Decode the passphrase salt.
+        5. Derive wrapping key via crypto.derive_key_argon2id().
+        6. Unwrap master key via crypto.unwrap_master_key().
+        7. Decrypt vault data via vault.load_decrypted_vault().
+        8. Create session via session.create_session().
+        9. Write access log.
+
+    Returns:
+        Dict with success status.
+
+    Raises:
+        ValueError: If software-only mode is not enabled.
+        CryptoError: If passphrase is incorrect.
+
+    TODO: Implement the software-only unlock flow.
+    """
+    raise NotImplementedError("unlock_software_only")

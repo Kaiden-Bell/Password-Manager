@@ -1,0 +1,400 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   The Vault — Stylesheet
+   Dark theme, clean layout, modern design.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* --- Reset & Base --- */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-primary: #0f1117;
+    --bg-secondary: #1a1d27;
+    --bg-panel: #21242f;
+    --bg-input: #2a2d3a;
+    --text-primary: #e4e6ef;
+    --text-secondary: #9ca3b8;
+    --text-muted: #6b7280;
+    --accent-blue: #4f8ff7;
+    --accent-green: #34d399;
+    --accent-red: #f87171;
+    --accent-yellow: #fbbf24;
+    --border-color: #2e3140;
+    --radius: 8px;
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    --transition: 0.2s ease;
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* --- Header --- */
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 2rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.status {
+    padding: 0.35rem 1rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.status.locked {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--accent-red);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.status.unlocked {
+    background: rgba(52, 211, 153, 0.15);
+    color: var(--accent-green);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+/* --- Main --- */
+main {
+    max-width: 900px;
+    margin: 2rem auto;
+    padding: 0 1.5rem;
+}
+
+/* --- Panels --- */
+.panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow);
+}
+
+.panel h2 {
+    font-size: 1.25rem;
+    margin-bottom: 1.5rem;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.75rem;
+}
+
+/* --- Forms --- */
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"],
+.form-group input[type="number"] {
+    width: 100%;
+    padding: 0.65rem 0.85rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    transition: border-color var(--transition);
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.checkbox-group input[type="checkbox"] {
+    accent-color: var(--accent-blue);
+    width: 16px;
+    height: 16px;
+}
+
+/* --- Buttons --- */
+.btn {
+    padding: 0.6rem 1.25rem;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.btn-primary {
+    background: var(--accent-blue);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: #3d7de0;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background: var(--border-color);
+}
+
+.btn-danger {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--accent-red);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.btn-danger:hover {
+    background: rgba(248, 113, 113, 0.25);
+}
+
+.btn-icon {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-icon:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+/* --- Messages --- */
+.message {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    display: none;
+}
+
+.message.success {
+    display: block;
+    background: rgba(52, 211, 153, 0.1);
+    color: var(--accent-green);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.message.error {
+    display: block;
+    background: rgba(248, 113, 113, 0.1);
+    color: var(--accent-red);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+/* --- Info Box --- */
+.info-box {
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.info-box p {
+    margin-bottom: 0.25rem;
+}
+
+/* --- Dashboard Header --- */
+.dashboard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.75rem;
+}
+
+.dashboard-header h2 {
+    margin-bottom: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+/* --- Search Bar --- */
+.search-bar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.search-bar input {
+    flex: 1;
+    padding: 0.6rem 0.85rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.search-bar input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+/* --- Entries Table --- */
+#entries-container {
+    margin-bottom: 1.5rem;
+}
+
+#entries-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+#entries-table th {
+    text-align: left;
+    padding: 0.65rem 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border-color);
+}
+
+#entries-table td {
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+#entries-table tr:hover td {
+    background: rgba(79, 143, 247, 0.05);
+}
+
+.password-cell {
+    font-family: monospace;
+    letter-spacing: 0.1em;
+}
+
+/* --- Add Credential --- */
+.add-credential-section {
+    margin-bottom: 1.5rem;
+}
+
+.add-credential-section h3 {
+    font-size: 0.95rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.form-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.form-row input {
+    flex: 1;
+    min-width: 140px;
+    padding: 0.6rem 0.85rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.form-row input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+/* --- Password Tools --- */
+.password-tools {
+    margin-bottom: 1rem;
+}
+
+.password-tools h3 {
+    font-size: 0.95rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.tool-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.tool-row input {
+    flex: 1;
+    min-width: 200px;
+    padding: 0.6rem 0.85rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.tool-row input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+#strength-result {
+    font-size: 0.85rem;
+    font-weight: 600;
+    min-width: 100px;
+}
+
+/* --- Footer --- */
+footer {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+/* --- Utilities --- */
+.hidden {
+    display: none !important;
+}

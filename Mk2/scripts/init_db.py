@@ -1,33 +1,26 @@
-#!/usr/bin/env python3
 """
-scripts/init_db.py
-──────────────────
-Bootstrap the SQLite database — creates all tables if they don't exist.
+init_db.py — Initialize the SQLite database.
 
-Usage:
+Creates all tables defined in the schema.
+Run from project root:
     python scripts/init_db.py
 """
 
 import sys
-from pathlib import Path
+import os
 
-# Add project root to sys.path so we can import ``app``
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.config import Config
-from app.database import init_db
+from app.database import initialize_database
+from app.config import DATABASE_PATH
 
 
-def main() -> None:
-    cfg = Config.from_env()
-    print(f"Initialising database: {cfg.database_url}")
-
-    # Ensure the data/ directory exists
-    db_path = cfg.database_url.replace("sqlite:///", "")
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-    init_db(cfg.database_url)
-    print("✔  All tables created successfully.")
+def main():
+    print(f"Initializing database at: {DATABASE_PATH}")
+    initialize_database()
+    print("Database initialized successfully.")
+    print(f"Tables created in: {DATABASE_PATH}")
 
 
 if __name__ == "__main__":

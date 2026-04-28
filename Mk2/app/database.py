@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS vault_data (
     encrypted_blob TEXT NOT NULL,
     nonce TEXT NOT NULL,
     algorithm TEXT NOT NULL DEFAULT 'xchacha20-poly1305',
+    created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (vault_id) REFERENCES vaults(vault_id)
 );
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS access_logs (
     auth_method TEXT,
     success INTEGER NOT NULL,
     details TEXT,
-    timestamp TEXT NOT NULL,
+    created_at TEXT NOT NULL,
     FOREIGN KEY (vault_id) REFERENCES vaults(vault_id),
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
@@ -369,7 +370,7 @@ def save_vault_data(
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO vault_data (vault_id, encrypted_blob, nonce, algorithm, created_at, updated_at)
+            INSERT OR REPLACE INTO vault_data (vault_id, encrypted_blob, nonce, algorithm, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (vault_id, encrypted_blob, nonce, algorithm, _now(), _now()),

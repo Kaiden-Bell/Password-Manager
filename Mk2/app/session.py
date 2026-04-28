@@ -14,9 +14,9 @@ import time
 from app.config import SESSION_TIMEOUT_SECONDS, GATE_WINDOW_SECONDS
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Session Storage
-# ═══════════════════════════════════════════════════════════════════════════
+# -----------------
+# Session Storage |
+# -----------------
 
 # In-memory session store: vault_id -> session dict
 _sessions: dict[int, dict] = {}
@@ -25,9 +25,9 @@ _sessions: dict[int, dict] = {}
 _passphrase_windows: dict[int, float] = {}
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Session Lifecycle
-# ═══════════════════════════════════════════════════════════════════════════
+# -------------------
+# Session Lifecycle |
+# -------------------
 
 def create_session(
     user_id: int,
@@ -38,89 +38,105 @@ def create_session(
 ) -> dict:
     """
     Create a new unlocked session for a vault.
-
-    Session dict should contain:
-        is_unlocked, active_user_id, active_vault_id, auth_method,
-        decrypted_vault, vault_master_key, last_activity
-
-    TODO:
-        1. Build the session dict.
-        2. Store it in _sessions keyed by vault_id.
-        3. Return the session dict.
     """
-    raise NotImplementedError("create_session")
 
+    # Init values
+    is_unlocked = True
+    active_user_id = user_id
+    active_vault_id = vault_id
+    vault_master_key = master_key
+    last_activity = time.time()
 
+    session = {
+        "is_unlocked": is_unlocked,
+        "active_user_id": active_user_id,
+        "active_vault_id": active_vault_id,
+        "auth_method": auth_method,
+        "decrypted_vault": decrypted_vault,
+        "vault_master_key": vault_master_key,
+        "last_activity": last_activity,
+    }
+
+    _sessions[vault_id] = session
+    return session
+    
 def is_unlocked(vault_id: int) -> bool:
     """
     Check if a vault has an active, unlocked session.
-
-    TODO:
-        1. Look up vault_id in _sessions.
-        2. Return True if found and is_unlocked is True.
-        3. Also check for session timeout via last_activity.
     """
-    raise NotImplementedError("is_unlocked")
+    session = _sessions.get(vault_id)
 
+    if not session:
+        return False
+
+    if session.get('is_unlocked') and time.time() - session.get('last_activity') < SESSION_TIMEOUT_SECONDS:
+        return True
+    else:
+        return False        
 
 def get_session(vault_id: int) -> dict | None:
     """
     Retrieve the session dict for a vault, or None if not found.
-
-    TODO: Return _sessions.get(vault_id).
     """
-    raise NotImplementedError("get_session")
-
+    session = _sessions.get(vault_id)
+    
+    return session if is_unlocked(vault_id) else None
 
 def touch_session(vault_id: int) -> None:
     """
     Update last_activity timestamp to prevent session timeout.
-
-    TODO: Update last_activity in _sessions[vault_id].
     """
-    raise NotImplementedError("touch_session")
 
+    session = _sessions.get(vault_id)
+
+    if session and is_unlocked(vault_id):
+        session['last_activity'] = time.time()
+    else:
+        pass
 
 def lock_session(vault_id: int) -> None:
     """
     Lock a vault session and clear all secrets from memory.
-
-    TODO:
-        1. Call clear_secrets(vault_id).
-        2. Remove the session from _sessions.
     """
-    raise NotImplementedError("lock_session")
 
+    session = _sessions.get(vault_id)
+
+    if session and is_unlocked(vault_id):
+        clear_secrets(vault_id)
+        del _sessions[vault_id]
+    else:
+        pass
 
 def expire_old_sessions() -> list[int]:
     """
     Find and lock sessions that have exceeded SESSION_TIMEOUT_SECONDS.
-
-    Returns:
-        List of vault_ids that were expired.
-
-    TODO:
-        1. Iterate _sessions.
-        2. Lock any session where now - last_activity > SESSION_TIMEOUT_SECONDS.
     """
-    raise NotImplementedError("expire_old_sessions")
+
+    expired_sessions = []
+
+    for vault_id, session in _sessions.items():
+        if time.time() - session.get('last_activity') > SESSION_TIMEOUT_SECONDS:
+            lock_session(vault_id)
+            expired_sessions.append(vault_id)
+
+    return expired_sessions
 
 
 def clear_secrets(vault_id: int) -> None:
     """
     Securely clear decrypted vault data and master key from a session.
-
-    TODO:
-        1. Overwrite decrypted_vault with None.
-        2. Overwrite vault_master_key with None.
-        3. Set is_unlocked to False.
     """
-    raise NotImplementedError("clear_secrets")
 
+    session = _sessions.get(vault_id)
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Passphrase Window
-# ═══════════════════════════════════════════════════════════════════════════
+    if session:
+        session['decrypted_vault'] = None
+        session['vault_master_key'] = None
+        session['is_unlocked'] = False
+
+# -------------------
+# Passphrase Window |
+# -------------------
 
 def open_passphrase_window(
     vault_id: int,
@@ -128,29 +144,30 @@ def open_passphrase_window(
 ) -> float:
     """
     Open a temporary passphrase-entry window for a vault.
-
-    Args:
-        vault_id: The vault to open the window for.
-        seconds:  How long the window stays open.
-
-    Returns:
-        The expiry timestamp.
-
-    TODO:
-        1. Compute expiry = time.time() + seconds.
-        2. Store in _passphrase_windows[vault_id].
-        3. Return expiry.
     """
-    raise NotImplementedError("open_passphrase_window")
 
+    expiry = time.time() + seconds
+    _passphrase_windows[vault_id] = expiry
+    return expiry
 
 def is_passphrase_window_active(vault_id: int) -> bool:
     """
     Check whether the passphrase window is still open.
-
-    TODO:
-        1. Look up vault_id in _passphrase_windows.
-        2. Return True if time.time() < expiry.
-        3. Clean up expired windows.
     """
-    raise NotImplementedError("is_passphrase_window_active")
+
+    if vault_id not in _passphrase_windows:
+        return False
+
+    if time.time() > _passphrase_windows[vault_id]:
+        del _passphrase_windows[vault_id]
+        return False
+    else:
+        return True
+
+def close_passphrase_window(vault_id: int) -> None:
+    """
+    Close the passphrase window for a vault.
+    """
+
+    if vault_id in _passphrase_windows:
+        del _passphrase_windows[vault_id]

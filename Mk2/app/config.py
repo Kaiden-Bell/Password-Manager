@@ -27,7 +27,7 @@ GATE_WINDOW_SECONDS = 60       # Seconds the passphrase window stays open
 # # -------------
 # Session
 # # -------------
-SESSION_TIMEOUT_SECONDS = 300  # Auto-lock after 5 minutes of inactivity
+SESSION_TIMEOUT_SECONDS = 5  # Auto-lock after 5 minutes of inactivity
 
 # # -------------
 # Argon2id KDF Parameters

@@ -242,7 +242,9 @@ def load_auth_credentials(vault_id: int) -> dict | None:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT * FROM auth_credentials WHERE vault_id = ?
+            SELECT * 
+            FROM auth_credentials 
+            WHERE vault_id = ?
             """,
             (vault_id,),
         )
@@ -287,7 +289,9 @@ def load_hardware_auth(vault_id: int) -> dict | None:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT * FROM hardware_auth WHERE vault_id = ?
+            SELECT * 
+            FROM hardware_auth 
+            WHERE vault_id = ?
             """,
             (vault_id,),
         )
@@ -306,13 +310,32 @@ def increment_failed_pin_attempts(vault_id: int) -> None:
         cursor = conn.cursor()
         cursor.execute(
             """
-            UPDATE hardware_auth SET failed_attempts = failed_attempts + 1 WHERE vault_id = ?
+            UPDATE hardware_auth 
+            SET failed_attempts = failed_attempts + 1, last_failed_at = ?
+            WHERE vault_id = ?
             """,
             (vault_id,),
         )
         conn.commit()
     finally:
         conn.close()
+
+def get_failed_pin_attempts(vault_id: int) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT failed_attempts 
+            FROM hardware_auth 
+            WHERE vault_id = ?
+            """, (vault_id))
+        row = cursor.fetchone()
+        return row["failed_attempts"] if row else 0
+    finally:
+        conn.close()
+
+
 
 
 def reset_failed_pin_attempts(vault_id: int) -> None:
@@ -322,7 +345,9 @@ def reset_failed_pin_attempts(vault_id: int) -> None:
         cursor = conn.cursor()
         cursor.execute(
             """
-            UPDATE hardware_auth SET failed_attempts = 0, last_success_at = ? WHERE vault_id = ?
+            UPDATE hardware_auth 
+            SET failed_attempts = 0, last_success_at = ? 
+            WHERE vault_id = ?
             """,
             (_now(), vault_id),
         )
@@ -342,7 +367,9 @@ def load_vault_policy(vault_id: int) -> dict | None:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT * FROM vault_policy WHERE vault_id = ?
+            SELECT * 
+            FROM vault_policy 
+            WHERE vault_id = ?
             """,
             (vault_id,),
         )
@@ -388,7 +415,9 @@ def load_vault_data(vault_id: int) -> dict | None:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT * FROM vault_data WHERE vault_id = ?
+            SELECT * 
+            FROM vault_data 
+            WHERE vault_id = ?
             """,
             (vault_id,),
         )
@@ -411,7 +440,9 @@ def update_vault_data(
         cursor = conn.cursor()
         cursor.execute(
             """
-            UPDATE vault_data SET encrypted_blob = ?, nonce = ?, algorithm = ?, updated_at = ? WHERE vault_id = ?
+            UPDATE vault_data 
+            SET encrypted_blob = ?, nonce = ?, algorithm = ?, updated_at = ? 
+            WHERE vault_id = ?
             """,
             (encrypted_blob, nonce, "xchacha20-poly1305", _now(), vault_id),
         )

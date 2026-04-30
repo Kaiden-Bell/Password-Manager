@@ -24,45 +24,47 @@ Notes:
 
 import json
 
-# from app import crypto, database, session
-# from app.password_utils import current_date_string
+from app import crypto, database, session
+from app.password_utils import current_date_string
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Vault Creation
-# ═══════════════════════════════════════════════════════════════════════════
+# ----------------
+# Vault Creation |
+# ----------------
 
 def create_empty_vault() -> dict:
     """
     Return a new, empty vault data structure.
-
-    Returns:
-        {"entries": []}
-
-    TODO: Return the empty vault dict.
     """
-    raise NotImplementedError("create_empty_vault")
+
+    empty_vault = {
+        "entries": []
+    }
+
+    return empty_vault
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Load / Save
-# ═══════════════════════════════════════════════════════════════════════════
+# -------------
+# Load / Save |
+# -------------
 
 def load_decrypted_vault(vault_id: int, master_key: bytes) -> dict:
     """
     Load and decrypt vault data from the database.
-
-    Steps:
-        1. Load encrypted blob from database.load_vault_data(vault_id).
-        2. Decrypt via crypto.decrypt_xchacha20_poly1305().
-        3. Parse JSON bytes into dict.
-
-    Returns:
-        Decrypted vault data dict.
-
-    TODO: Implement load + decrypt + parse.
     """
-    raise NotImplementedError("load_decrypted_vault")
+
+    result = database.load_vault_data(vault_id)
+
+    if not result:
+        return create_empty_vault()
+
+    enc_b64, nonce_b64 = result
+
+    decrypted_data = crypto.decrypt_xchacha20_poly1305(enc_b64, nonce_b64, master_key)
+    
+    vault_data = json.loads(decrypted_data)
+
+    return vault_data
 
 
 def save_decrypted_vault(
@@ -72,20 +74,16 @@ def save_decrypted_vault(
 ) -> None:
     """
     Encrypt and save vault data to the database.
-
-    Steps:
-        1. Serialize vault_data to JSON bytes.
-        2. Encrypt via crypto.encrypt_xchacha20_poly1305().
-        3. Save via database.update_vault_data().
-
-    TODO: Implement serialize + encrypt + save.
     """
-    raise NotImplementedError("save_decrypted_vault")
+
+    json_bytes = json.dumps(vault_data).encode("utf-8")
+    enc_b64, nonce_b64 = crypto.encrypt_xchacha20_poly1305(json_bytes, master_key)
+    database.update_vault_data(vault_id, enc_b64, nonce_b64)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Credential CRUD
-# ═══════════════════════════════════════════════════════════════════════════
+# -----------------
+# Credential CRUD |
+# -----------------
 
 def add_credential(
     vault_id: int,
@@ -95,21 +93,34 @@ def add_credential(
 ) -> dict:
     """
     Add a new credential entry to the vault.
-
-    Steps:
-        1. Get the current session for vault_id.
-        2. Read decrypted_vault from session.
-        3. Assign a new entry_id (max existing + 1, or 0).
-        4. Append the new entry with current date as last_rotated.
-        5. Re-encrypt and save via save_decrypted_vault().
-        6. Update the session's decrypted_vault.
-
-    Returns:
-        The newly created entry dict.
-
-    TODO: Implement add + re-encrypt flow.
     """
-    raise NotImplementedError("add_credential")
+
+    curr_session = session.get_session(vault_id)
+    if not curr_session:
+        raise ValueError(f"No active session found for vault {vault_id}")
+
+    vault_data = curr_session["decrypted_vault"]
+    entries = vault_data["entries"]
+
+    if not entries:
+        new_entry_id = 0
+    else:
+        max_id = max(entry["entry_id"] for entry in entries)
+        new_entry_id = max_id + 1
+
+    new_entry = {
+        "entry_id": new_entry_id,
+        "site": site,
+        "username": username,
+        "password": password,
+        "last_rotated": current_date_string(),
+    }
+
+    entries.append(new_entry)
+    save_decrypted_vault(vault_id, vault_data, curr_session["vault_master_key"])
+    curr_session["decrypted_vault"] = vault_data
+
+    return new_entry
 
 
 def update_credential(
@@ -121,59 +132,83 @@ def update_credential(
 ) -> dict:
     """
     Update an existing credential entry.
-
-    Steps:
-        1. Get the current session for vault_id.
-        2. Find the entry by entry_id.
-        3. Update only the provided fields.
-        4. If password changed, update last_rotated.
-        5. Re-encrypt and save.
-        6. Update the session's decrypted_vault.
-
-    Returns:
-        The updated entry dict.
-
-    Raises:
-        ValueError: If entry_id is not found.
-
-    TODO: Implement update + re-encrypt flow.
     """
-    raise NotImplementedError("update_credential")
+
+    curr_session = session.get_session(vault_id)
+    if not curr_session:
+        raise ValueError(f"No active session found for vault {vault_id}")
+
+    vault_data = curr_session["decrypted_vault"]
+    entries = vault_data["entries"]
+
+    entry_to_update = None
+    for entry in entries:
+        if entry["entry_id"] == entry_id:
+            entry_to_update = entry
+            break
+
+    if entry_to_update is None:
+        raise ValueError("No entry found with the given entry_id.")
+
+    if site is not None:
+        entry_to_update["site"] = site
+
+    if username is not None:
+        entry_to_update["username"] = username
+
+    if password is not None:
+        entry_to_update["password"] = password
+        entry_to_update["last_rotated"] = current_date_string()
+
+    save_decrypted_vault(vault_id, vault_data, curr_session["vault_master_key"])
+    curr_session["decrypted_vault"] = vault_data
+
+    return entry_to_update
 
 
 def delete_credential(vault_id: int, entry_id: int) -> dict:
     """
     Delete a credential entry from the vault.
-
-    Steps:
-        1. Get the current session for vault_id.
-        2. Remove the entry with matching entry_id.
-        3. Re-encrypt and save.
-        4. Update the session's decrypted_vault.
-
-    Returns:
-        The deleted entry dict.
-
-    Raises:
-        ValueError: If entry_id is not found.
-
-    TODO: Implement delete + re-encrypt flow.
     """
-    raise NotImplementedError("delete_credential")
+
+    curr_session = session.get_session(vault_id)
+    if not curr_session:
+        raise ValueError(f"No active session found for vault {vault_id}")
+
+    vault_data = curr_session["decrypted_vault"]
+    entries = vault_data["entries"]
+
+    target = -1
+    for i, entry in enumerate(entries):
+        if entry["entry_id"] == entry_id:
+            target = i
+            break
+    
+    if target == -1:
+        raise ValueError(f"No entry found for vault {vault_id} with entry_id {entry_id}.")
+
+    deleted = entries.pop(target)
+    save_decrypted_vault(vault_id, vault_data, curr_session["vault_master_key"])
+    curr_session["decrypted_vault"] = vault_data
+
+    return deleted
 
 
 def search_credentials(vault_id: int, query: str) -> list[dict]:
     """
     Search vault credentials by site or username.
-
-    Steps:
-        1. Get the current session for vault_id.
-        2. Filter entries where query appears in site or username
-           (case-insensitive).
-
-    Returns:
-        List of matching entry dicts.
-
-    TODO: Implement search logic.
     """
-    raise NotImplementedError("search_credentials")
+
+    curr_session = session.get_session(vault_id)
+    if not curr_session:
+        raise ValueError(f"No active session found for vault {vault_id}")
+
+    vault_data = curr_session["decrypted_vault"]
+    entries = vault_data["entries"]
+
+    search_results = []
+    for entry in entries:
+        if query.lower() in entry["site"].lower() or query.lower() in entry["username"].lower():
+            search_results.append(entry)
+
+    return search_results

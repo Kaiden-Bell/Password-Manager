@@ -11,18 +11,19 @@ Security:
     - Never store raw passphrases or PINs.
 """
 
-# from app import crypto, database, session, vault
-# from app.config import (
-#     ARGON2_MEMORY_COST,
-#     ARGON2_TIME_COST,
-#     ARGON2_PARALLELISM,
-#     KEY_LENGTH,
-# )
+import base64
+from app import crypto, database, session, vault
+from app.config import (
+    ARGON2_MEMORY_COST,
+    ARGON2_TIME_COST,
+    ARGON2_PARALLELISM,
+    KEY_LENGTH,
+)
 
 
-# # -------------
-# Vault Init
-# # -------------
+# ------------
+# Vault Init |
+# ------------
 
 def initialize_vault(
     username: str,
@@ -35,55 +36,69 @@ def initialize_vault(
 ) -> dict:
     """
     Full vault initialization flow.
-
-    Steps:
-        1. Create user via database.create_user().
-        2. Create vault via database.create_vault().
-        3. Create vault policy via database.create_vault_policy().
-        4. Generate a random vault master key via crypto.generate_master_key().
-        5. Generate a passphrase salt via crypto.generate_salt().
-        6. Derive wrapping key via crypto.derive_key_argon2id(passphrase, salt).
-        7. Wrap master key via crypto.wrap_master_key().
-        8. Save auth credentials via database.save_auth_credentials().
-        9. If keypad_pin is provided:
-           a. Generate PIN salt.
-           b. Hash PIN via crypto.hash_keypad_pin().
-           c. Save via database.save_hardware_auth().
-        10. Create empty vault data via vault.create_empty_vault().
-        11. Encrypt empty vault via crypto.encrypt_xchacha20_poly1305().
-        12. Save encrypted vault via database.save_vault_data().
-        13. Write access log.
-
-    Returns:
-        Dict with user_id, vault_id, and success status.
-
-    TODO: Implement the full flow described above.
     """
-    raise NotImplementedError("initialize_vault")
+    kdf_params = {
+        "memory_cost": ARGON2_MEMORY_COST,
+        "time_cost": ARGON2_TIME_COST,
+        "parallelism": ARGON2_PARALLELISM,
+    }
 
+    user = database.create_user(username, display_name)
+    vault_id = database.create_vault(user, vault_name)
+    vault_policy = database.create_vault_policy(vault_id, hardware_gate_required, software_only_enabled) 
+    master_key = crypto.generate_master_key()
+    passphrase_salt_bytes = crypto.generate_salt()
+    wrapping_key = crypto.derive_key_argon2id(passphrase, passphrase_salt_bytes)
+    wrapped_master_key, wrapped_nonce = crypto.wrap_master_key(master_key, wrapping_key)
+    
+    passphrase_salt_b64 = base64.b64encode(passphrase_salt_bytes).decode("utf-8")
+    database.save_auth_credentials(vault_id, passphrase_salt_b64, wrapped_master_key, wrapped_nonce, kdf_params)
 
-# # -------------
-# Hardware PIN
-# # -------------
+    if keypad_pin:
+        pin_salt_bytes = crypto.generate_salt()
+        hashed_pin = crypto.hash_keypad_pin(keypad_pin, pin_salt_bytes)
+        pin_salt_b64 = base64.b64encode(pin_salt_bytes).decode("utf-8")
+        database.save_hardware_auth(vault_id, hashed_pin, pin_salt_b64)
+
+    empty_vault = vault.create_empty_vault()
+    # encrypt_xchacha20_poly1305 takes bytes, so json dump first?
+    # Wait, vault.create_empty_vault() returns a dict. crypto.encrypt_xchacha20_poly1305 takes plaintext_bytes.
+    # We should json.dumps(empty_vault).encode('utf-8')
+    import json
+    empty_vault_bytes = json.dumps(empty_vault).encode("utf-8")
+    encrypted_vault_blob, nonce = crypto.encrypt_xchacha20_poly1305(empty_vault_bytes, master_key)
+    database.save_vault_data(vault_id, encrypted_vault_blob, nonce)
+    database.write_access_log(vault_id, "initialize", "hardware_gated", True, "Vault initialized")
+    return {"user_id": user, "vault_id": vault_id, "success": True}
+
+# --------------
+# Hardware PIN |
+# --------------
 
 
 def verify_hardware_pin(vault_id: int, pin_attempt: str) -> bool:
     """
     Verify a keypad PIN attempt against the stored hash.
-
-    Steps:
-        1. Load hardware_auth from database.
-        2. Decode the stored salt.
-        3. Call crypto.verify_keypad_pin().
-        4. If valid: reset failed attempts, open passphrase window.
-        5. If invalid: increment failed attempts, return False.
-
-    Returns:
-        True if the PIN is correct.
-
-    TODO: Implement PIN verification flow.
     """
-    raise NotImplementedError("verify_hardware_pin")
+    hardware_auth = database.load_hardware_auth(vault_id)
+
+    if not hardware_auth:
+        return False
+
+    salt = crypto.base64.b64decode(hardware_auth["keypad_pin_salt"])
+    stored_hash = hardware_auth["keypad_pin_hash"]
+    
+    if crypto.verify_keypad_pin(pin_attempt, stored_hash, salt):
+        session.open_passphrase_window(vault_id)
+        database.reset_failed_pin_attempts(vault_id)
+        return True
+
+    else:
+        database.increment_failed_pin_attempts(vault_id)
+        if database.get_failed_pin_attempts(vault_id) >= 3:
+            database.lock_vault(vault_id)
+            
+        return False
 
 
 # # -------------
@@ -94,23 +109,23 @@ def verify_hardware_pin(vault_id: int, pin_attempt: str) -> bool:
 def open_passphrase_window(vault_id: int) -> None:
     """
     Open the temporary passphrase-entry window for a vault.
-
-    Delegates to session.open_passphrase_window().
-
-    TODO: Call session.open_passphrase_window(vault_id).
     """
-    raise NotImplementedError("open_passphrase_window")
+    vault_policy = database.load_vault_policy(vault_id)
+    if not vault_policy:
+        raise ValueError(f"No vault policy found for vault {vault_id}")
+    if not vault_policy["hardware_gate_required"]:
+        raise ValueError(f"Hardware gating is not enabled for vault {vault_id}")
+    if session.is_passphrase_window_active(vault_id):
+        return
+    session.open_passphrase_window(vault_id)
+    database.reset_failed_pin_attempts(vault_id)
 
 
 def is_passphrase_window_active(vault_id: int) -> bool:
     """
     Check whether the passphrase window is currently open.
-
-    Delegates to session.is_passphrase_window_active().
-
-    TODO: Call and return session.is_passphrase_window_active(vault_id).
     """
-    raise NotImplementedError("is_passphrase_window_active")
+    return session.is_passphrase_window_active(vault_id)
 
 
 # # -------------
@@ -146,7 +161,37 @@ def unlock_with_passphrase(
 
     TODO: Implement the hardware-gated unlock flow.
     """
-    raise NotImplementedError("unlock_with_passphrase")
+
+    if not is_passphrase_window_active(vault_id):
+        raise ValueError(f"Passphrase window is not active for vault {vault_id}")
+
+    vault_policy = database.load_vault_policy(vault_id)
+    if not vault_policy:
+        raise ValueError(f"No vault policy found for vault {vault_id}")
+    if not vault_policy["hardware_gate_required"]:
+        raise ValueError(f"Hardware gating is not enabled for vault {vault_id}")
+    if not session.is_passphrase_window_active(vault_id):
+        raise ValueError(f"Passphrase window is not active for vault {vault_id}")
+
+    auth_credentials = database.load_auth_credentials(vault_id)
+    passphrase_salt_b64 = auth_credentials["passphrase_salt"]
+    passphrase_salt_bytes = base64.b64decode(passphrase_salt_b64)
+    wrapped_master_key = auth_credentials["wrapped_master_key"]
+    wrapped_nonce = auth_credentials["wrapped_master_key_nonce"]
+    
+    wrapping_key = crypto.derive_key_argon2id(
+        passphrase, 
+        passphrase_salt_bytes,
+        memory_cost=auth_credentials["kdf_memory_cost"],
+        time_cost=auth_credentials["kdf_time_cost"],
+        parallelism=auth_credentials["kdf_parallelism"]
+    )
+    master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
+    vault_data = vault.load_decrypted_vault(vault_id, master_key)
+    session.create_session(vault_id, vault_data, master_key)
+    database.write_access_log(vault_id, "unlock", auth_method, True, "Vault unlocked")
+
+    return {"success": True}
 
 
 def unlock_software_only(vault_id: int, passphrase: str) -> dict:
@@ -175,4 +220,29 @@ def unlock_software_only(vault_id: int, passphrase: str) -> dict:
 
     TODO: Implement the software-only unlock flow.
     """
-    raise NotImplementedError("unlock_software_only")
+
+    vault_policy = database.load_vault_policy(vault_id)
+    if not vault_policy:
+        raise ValueError(f"No vault policy found for vault {vault_id}")
+    if not vault_policy["software_only_enabled"]:
+        raise ValueError(f"Software-only mode is not enabled for vault {vault_id}")
+
+    auth_credentials = database.load_auth_credentials(vault_id)
+    passphrase_salt_b64 = auth_credentials["passphrase_salt"]
+    passphrase_salt_bytes = base64.b64decode(passphrase_salt_b64)
+    wrapped_master_key = auth_credentials["wrapped_master_key"]
+    wrapped_nonce = auth_credentials["wrapped_master_key_nonce"]
+    
+    wrapping_key = crypto.derive_key_argon2id(
+        passphrase, 
+        passphrase_salt_bytes,
+        memory_cost=auth_credentials["kdf_memory_cost"],
+        time_cost=auth_credentials["kdf_time_cost"],
+        parallelism=auth_credentials["kdf_parallelism"]
+    )
+    master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
+    vault_data = vault.load_decrypted_vault(vault_id, master_key)
+    session.create_session(vault_id, vault_data, master_key)
+    database.write_access_log(vault_id, "unlock", "software_only", True, "Vault unlocked")
+
+    return {"success": True}

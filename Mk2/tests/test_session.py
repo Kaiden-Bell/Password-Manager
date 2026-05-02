@@ -59,6 +59,22 @@ def test_get_session():
     )
     assert app.session.get_session(1) == session
 
+def test_get_active_vault_id():
+    """
+    Test that get_active_vault_id returns the active vault ID.
+    """
+    app.session._sessions.clear()
+    assert app.session.get_active_vault_id() is None
+    
+    app.session.create_session(
+        user_id=1,
+        vault_id=1,
+        auth_method='password',
+        decrypted_vault={"test":"test"},
+        master_key=b"test"
+    )
+    assert app.session.get_active_vault_id() == 1
+
 def test_touch_session():
     """
     Test that touch_session updates the last_activity timestamp.

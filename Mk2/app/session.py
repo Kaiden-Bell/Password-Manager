@@ -65,14 +65,8 @@ def is_unlocked(vault_id: int) -> bool:
     Check if a vault has an active, unlocked session.
     """
     session = _sessions.get(vault_id)
-
-    if not session:
-        return False
-
-    if session.get('is_unlocked') and time.time() - session.get('last_activity') < SESSION_TIMEOUT_SECONDS:
-        return True
-    else:
-        return False        
+    if not session: return False
+    return session.get('is_unlocked') and time.time() - session.get('last_activity') < SESSION_TIMEOUT_SECONDS
 
 def get_session(vault_id: int) -> dict | None:
     """
@@ -81,6 +75,16 @@ def get_session(vault_id: int) -> dict | None:
     session = _sessions.get(vault_id)
     
     return session if is_unlocked(vault_id) else None
+
+def get_active_vault_id() -> int | None:
+    """
+    Return the vault_id of the currently active (unlocked) session.
+    Assumes only one session is active at a time.
+    """
+    for vault_id in _sessions:
+        if is_unlocked(vault_id):
+            return vault_id
+    return None
 
 def touch_session(vault_id: int) -> None:
     """
@@ -171,3 +175,12 @@ def close_passphrase_window(vault_id: int) -> None:
 
     if vault_id in _passphrase_windows:
         del _passphrase_windows[vault_id]
+
+def get_passphrase_window_remaining(vault_id: int) -> float:
+    """
+    Get the remaining seconds of the passphrase window.
+    """
+    if not is_passphrase_window_active(vault_id):
+        return 0.0
+    return max(0.0, _passphrase_windows[vault_id] - time.time())
+

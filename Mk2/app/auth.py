@@ -2,24 +2,18 @@
 auth.py — Auth Service
 
 Manages vault init + unlock seq.
-auth.py -> crypto, database, session, and vault modules.
+Requires: crypto, database, session, and vault modules.
 
-Security:
-    - "Hardware mode" reqs a passphrase window to unlock.
-    - "Software-only mode" works ONLY if vault was initalized without passcode.
-    - Unlocking => passphrase -> wrapping key -> unwrap master key -> decrypt vault data -> create session.
-    - Never store raw passphrases or PINs.
 """
 
 import base64
+import json
 from app import crypto, database, session, vault
 from app.config import (
     ARGON2_MEMORY_COST,
     ARGON2_TIME_COST,
     ARGON2_PARALLELISM,
-    KEY_LENGTH,
 )
-
 
 # ------------
 # Vault Init |
@@ -35,7 +29,9 @@ def initialize_vault(
     software_only_enabled: bool = True,
 ) -> dict:
     """
-    Full vault initialization flow.
+        Desc: Full vault initialization flow.
+        Arguments: username, display_name, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
+        Returns: dict, vault id and success status
     """
     kdf_params = {
         "memory_cost": ARGON2_MEMORY_COST,
@@ -61,10 +57,7 @@ def initialize_vault(
         database.save_hardware_auth(vault_id, hashed_pin, pin_salt_b64)
 
     empty_vault = vault.create_empty_vault()
-    # encrypt_xchacha20_poly1305 takes bytes, so json dump first?
-    # Wait, vault.create_empty_vault() returns a dict. crypto.encrypt_xchacha20_poly1305 takes plaintext_bytes.
-    # We should json.dumps(empty_vault).encode('utf-8')
-    import json
+
     empty_vault_bytes = json.dumps(empty_vault).encode("utf-8")
     encrypted_vault_blob, nonce = crypto.encrypt_xchacha20_poly1305(empty_vault_bytes, master_key)
     database.save_vault_data(vault_id, encrypted_vault_blob, nonce)
@@ -75,10 +68,11 @@ def initialize_vault(
 # Hardware PIN |
 # --------------
 
-
 def verify_hardware_pin(vault_id: int, pin_attempt: str) -> bool:
     """
-    Verify a keypad PIN attempt against the stored hash.
+        Desc: Verify a keypad PIN attempt against the stored hash.
+        Arguments: vault_id, pin_attempt
+        Returns: bool, True if PIN is correct, False otherwise
     """
     hardware_auth = database.load_hardware_auth(vault_id)
 
@@ -100,15 +94,15 @@ def verify_hardware_pin(vault_id: int, pin_attempt: str) -> bool:
             
         return False
 
-
-# # -------------
-# Passphrase Seq
-# # -------------
-
+# ----------------
+# Passphrase Seq |
+# ----------------
 
 def open_passphrase_window(vault_id: int) -> None:
     """
-    Open the temporary passphrase-entry window for a vault.
+        Desc: Open the temporary passphrase-entry window for a vault.
+        Arguments: vault_id
+        Returns: None
     """
     vault_policy = database.load_vault_policy(vault_id)
     if not vault_policy:
@@ -120,17 +114,17 @@ def open_passphrase_window(vault_id: int) -> None:
     session.open_passphrase_window(vault_id)
     database.reset_failed_pin_attempts(vault_id)
 
-
 def is_passphrase_window_active(vault_id: int) -> bool:
     """
-    Check whether the passphrase window is currently open.
+        Desc: Check whether the passphrase window is currently open.
+        Arguments: vault_id
+        Returns: bool, True if passphrase window is open, False otherwise
     """
     return session.is_passphrase_window_active(vault_id)
 
-
-# # -------------
-# Unlock Seq
-# -------------
+# ------------
+# Unlock Seq |
+# ------------
 
 def unlock_with_passphrase(
     vault_id: int,
@@ -138,40 +132,17 @@ def unlock_with_passphrase(
     auth_method: str = "hardware_gated",
 ) -> dict:
     """
-    Hardware-gated passphrase unlock.
-
-    Precondition: passphrase window MUST be active.
-
-    Steps:
-        1. Verify passphrase window is active.
-        2. Load auth credentials from database.
-        3. Decode the passphrase salt.
-        4. Derive wrapping key via crypto.derive_key_argon2id().
-        5. Unwrap master key via crypto.unwrap_master_key().
-        6. Decrypt vault data via vault.load_decrypted_vault().
-        7. Create session via session.create_session().
-        8. Write access log.
-
-    Returns:
-        Dict with success status.
-
-    Raises:
-        ValueError: If passphrase window is not active.
-        CryptoError: If passphrase is incorrect.
-
-    TODO: Implement the hardware-gated unlock flow.
+        Desc: Hardware-gated passphrase unlock. (PASSPHRASE WINDOW MUST BE ACTIVE)
+        Arguments: vault_id, passphrase, auth_method
+        Returns: dict, session data and vault id
     """
-
     if not is_passphrase_window_active(vault_id):
         raise ValueError(f"Passphrase window is not active for vault {vault_id}")
 
     vault_policy = database.load_vault_policy(vault_id)
-    if not vault_policy:
-        raise ValueError(f"No vault policy found for vault {vault_id}")
-    if not vault_policy["hardware_gate_required"]:
-        raise ValueError(f"Hardware gating is not enabled for vault {vault_id}")
-    if not session.is_passphrase_window_active(vault_id):
-        raise ValueError(f"Passphrase window is not active for vault {vault_id}")
+    if not vault_policy: raise ValueError(f"No vault policy found for vault {vault_id}")
+    if not vault_policy["hardware_gate_required"]: raise ValueError(f"Hardware gating is not enabled for vault {vault_id}")
+    if not session.is_passphrase_window_active(vault_id): raise ValueError(f"Passphrase window is not active for vault {vault_id}")
 
     auth_credentials = database.load_auth_credentials(vault_id)
     passphrase_salt_b64 = auth_credentials["passphrase_salt"]
@@ -196,29 +167,9 @@ def unlock_with_passphrase(
 
 def unlock_software_only(vault_id: int, passphrase: str) -> dict:
     """
-    Software-only passphrase unlock.
-
-    Precondition: vault policy must allow software-only mode.
-
-    Steps:
-        1. Load vault policy from database.
-        2. Verify software_only_enabled is True.
-        3. Load auth credentials from database.
-        4. Decode the passphrase salt.
-        5. Derive wrapping key via crypto.derive_key_argon2id().
-        6. Unwrap master key via crypto.unwrap_master_key().
-        7. Decrypt vault data via vault.load_decrypted_vault().
-        8. Create session via session.create_session().
-        9. Write access log.
-
-    Returns:
-        Dict with success status.
-
-    Raises:
-        ValueError: If software-only mode is not enabled.
-        CryptoError: If passphrase is incorrect.
-
-    TODO: Implement the software-only unlock flow.
+        Desc: Software-only passphrase unlock.
+        Arguments: vault_id, passphrase
+        Returns: dict, session data and vault id
     """
 
     vault_policy = database.load_vault_policy(vault_id)

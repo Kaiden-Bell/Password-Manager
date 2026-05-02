@@ -118,7 +118,6 @@ CREATE TABLE IF NOT EXISTS access_logs (
 # ------------
 
 def get_connection() -> sqlite3.Connection:
-
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -145,7 +144,6 @@ def _now() -> str:
 # ------
 
 def create_user(username: str, display_name: str) -> int:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -167,7 +165,6 @@ def create_user(username: str, display_name: str) -> int:
 # -------
 
 def create_vault(user_id: int, vault_name: str) -> int:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -184,13 +181,31 @@ def create_vault(user_id: int, vault_name: str) -> int:
         conn.close()
 
 
+def load_vault(vault_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * 
+            FROM vaults 
+            WHERE vault_id = ?
+            """,
+            (vault_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+    finally:
+        conn.close()
+
 def create_vault_policy(
     vault_id: int,
     hardware_gate_required: bool = False,
     software_only_enabled: bool = True,
     gate_window_seconds: int = 60,
 ) -> int:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -218,7 +233,6 @@ def save_auth_credentials(
     wrapped_master_key_nonce: str,
     kdf_params: dict,
 ) -> int:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -236,7 +250,6 @@ def save_auth_credentials(
 
 
 def load_auth_credentials(vault_id: int) -> dict | None:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -265,7 +278,6 @@ def save_hardware_auth(
     keypad_pin_hash: str,
     keypad_pin_salt: str,
 ) -> int:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -283,7 +295,6 @@ def save_hardware_auth(
 
 
 def load_hardware_auth(vault_id: int) -> dict | None:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -304,17 +315,16 @@ def load_hardware_auth(vault_id: int) -> dict | None:
 
 
 def increment_failed_pin_attempts(vault_id: int) -> None:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
         cursor.execute(
             """
             UPDATE hardware_auth 
-            SET failed_attempts = failed_attempts + 1, last_failed_at = ?
+            SET failed_attempts = failed_attempts + 1, updated_at = ?
             WHERE vault_id = ?
             """,
-            (vault_id,),
+            (_now(), vault_id),
         )
         conn.commit()
     finally:
@@ -329,7 +339,7 @@ def get_failed_pin_attempts(vault_id: int) -> int:
             SELECT failed_attempts 
             FROM hardware_auth 
             WHERE vault_id = ?
-            """, (vault_id))
+            """, (vault_id,))
         row = cursor.fetchone()
         return row["failed_attempts"] if row else 0
     finally:
@@ -339,7 +349,6 @@ def get_failed_pin_attempts(vault_id: int) -> int:
 
 
 def reset_failed_pin_attempts(vault_id: int) -> None:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -361,7 +370,6 @@ def reset_failed_pin_attempts(vault_id: int) -> None:
 # --------------
 
 def load_vault_policy(vault_id: int) -> dict | None:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -391,7 +399,6 @@ def save_vault_data(
     nonce: str,
     algorithm: str = "xchacha20-poly1305",
 ) -> int:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -409,7 +416,6 @@ def save_vault_data(
 
 
 def load_vault_data(vault_id: int) -> dict | None:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -434,7 +440,6 @@ def update_vault_data(
     encrypted_blob: str,
     nonce: str,
 ) -> None:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -463,7 +468,6 @@ def write_access_log(
     success: bool,
     details: str | None = None,
 ) -> int:
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -476,5 +480,33 @@ def write_access_log(
         )
         conn.commit()
         return cursor.lastrowid
+    finally:
+        conn.close()
+
+def get_access_logs(vault_id: int | None = None, user_id: int | None = None) -> list[dict]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        
+        query = "SELECT log_id, vault_id, user_id, event_type, auth_method, success, details, created_at as timestamp FROM access_logs"
+        params = []
+        conditions = []
+        
+        if vault_id is not None:
+            conditions.append("vault_id = ?")
+            params.append(vault_id)
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+            
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+            
+        query += " ORDER BY created_at DESC"
+        
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        
+        return [dict(row) for row in rows]
     finally:
         conn.close()

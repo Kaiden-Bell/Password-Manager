@@ -1,25 +1,21 @@
 """
 vault.py — Vault data operations.
 
-Manages the plaintext vault data structure and re-encryption after mutations.
-Vault data format:
+Desc: Manages the plaintext vault data structure and re-encryption after mutations.
 
-    {
-        "entries": [
-            {
-                "entry_id": 0,
-                "site": "github.com",
-                "username": "example_user",
-                "password": "example_password",
-                "last_rotated": "2026-04-25"
-            }
-        ]
+    Vault data format (.json):
+        {
+            "entries": [
+                {
+                    "entry_id": 0,
+                    "site": "github.com",
+                    "username": "example_user",
+                    "password": "example_password",
+                    "last_rotated": "2026-04-25"
+                }
+            ]
     }
 
-Notes:
-    - All mutation functions require an unlocked session or master key.
-    - After any add/update/delete, the vault data must be re-encrypted
-      and saved to the database.
 """
 
 import json
@@ -27,14 +23,15 @@ import json
 from app import crypto, database, session
 from app.password_utils import current_date_string
 
-
 # ----------------
 # Vault Creation |
 # ----------------
 
 def create_empty_vault() -> dict:
     """
-    Return a new, empty vault data structure.
+        Desc: Return a new, empty vault data structure.
+        Arguments: None
+        Returns: dict, empty vault data structure
     """
 
     empty_vault = {
@@ -43,14 +40,15 @@ def create_empty_vault() -> dict:
 
     return empty_vault
 
-
 # -------------
 # Load / Save |
 # -------------
 
 def load_decrypted_vault(vault_id: int, master_key: bytes) -> dict:
     """
-    Load and decrypt vault data from the database.
+        Desc: Load and decrypt vault data from the database.
+        Arguments: vault_id, master_key
+        Returns: dict, decrypted vault data
     """
 
     result = database.load_vault_data(vault_id)
@@ -66,20 +64,20 @@ def load_decrypted_vault(vault_id: int, master_key: bytes) -> dict:
 
     return vault_data
 
-
 def save_decrypted_vault(
     vault_id: int,
     vault_data: dict,
     master_key: bytes,
 ) -> None:
     """
-    Encrypt and save vault data to the database.
+        Desc: Encrypt and save vault data to the database.
+        Arguments: vault_id, vault_data, master_key
+        Returns: None
     """
 
     json_bytes = json.dumps(vault_data).encode("utf-8")
     enc_b64, nonce_b64 = crypto.encrypt_xchacha20_poly1305(json_bytes, master_key)
     database.update_vault_data(vault_id, enc_b64, nonce_b64)
-
 
 # -----------------
 # Credential CRUD |
@@ -92,7 +90,9 @@ def add_credential(
     password: str,
 ) -> dict:
     """
-    Add a new credential entry to the vault.
+        Desc: Add a new credential entry to the vault.
+        Arguments: vault_id, site, username, password
+        Returns: dict, new credential entry
     """
 
     curr_session = session.get_session(vault_id)
@@ -122,7 +122,6 @@ def add_credential(
 
     return new_entry
 
-
 def update_credential(
     vault_id: int,
     entry_id: int,
@@ -131,7 +130,9 @@ def update_credential(
     password: str | None = None,
 ) -> dict:
     """
-    Update an existing credential entry.
+        Desc: Update an existing credential entry.
+        Arguments: vault_id, entry_id, site, username, password
+        Returns: dict, updated credential entry
     """
 
     curr_session = session.get_session(vault_id)
@@ -165,10 +166,11 @@ def update_credential(
 
     return entry_to_update
 
-
 def delete_credential(vault_id: int, entry_id: int) -> dict:
     """
-    Delete a credential entry from the vault.
+        Desc: Delete a credential entry from the vault.
+        Arguments: vault_id, entry_id
+        Returns: dict, deleted credential entry
     """
 
     curr_session = session.get_session(vault_id)
@@ -193,10 +195,11 @@ def delete_credential(vault_id: int, entry_id: int) -> dict:
 
     return deleted
 
-
 def search_credentials(vault_id: int, query: str) -> list[dict]:
     """
-    Search vault credentials by site or username.
+        Desc: Search vault credentials by site or username.
+        Arguments: vault_id, query
+        Returns: list[dict], list of matching credential entries
     """
 
     curr_session = session.get_session(vault_id)

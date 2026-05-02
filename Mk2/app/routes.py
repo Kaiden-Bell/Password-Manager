@@ -21,210 +21,294 @@ from app.models import (
     EntriesListResponse,
     GeneratePasswordResponse,
     CheckPasswordResponse,
-    LogEntry,
     LogsResponse,
 )
 
-# from app import auth, vault, session, password_utils, database
+from app import auth, vault, session, password_utils, database, hardware
 
 router = APIRouter(prefix="/api")
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Initialization
-# ═══════════════════════════════════════════════════════════════════════════
+# -------------------------
+# Initialization / Phases |
+# -------------------------
 
 @router.post("/init", response_model=MessageResponse)
 async def init_vault(request: InitRequest):
     """
-    Initialize a new vault: user, policy, auth credentials, encrypted data.
-
-    TODO:
-        1. Call auth.initialize_vault() with request fields.
-        2. Return success message with vault_id.
-        3. Handle errors (duplicate user, etc.).
+        Desc: Initialize a new vault: user, policy, auth credentials, encrypted data.
+        Arguments: username, display_name, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
+        Returns: dict, vault id and success status
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Unlock
-# ═══════════════════════════════════════════════════════════════════════════
+    try:
+        vault_id = auth.initialize_vault(
+            request.username,
+            request.display_name,
+            request.passphrase,
+            request.hardware_pin,
+            request.policy,
+        )
+        return MessageResponse(message=f"Vault {vault_id} created successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/unlock/passphrase", response_model=MessageResponse)
 async def unlock_passphrase(request: PassphraseUnlockRequest):
     """
-    Hardware-gated passphrase unlock.
-    Requires an active passphrase window (opened by valid PIN).
-
-    TODO:
-        1. Call auth.unlock_with_passphrase(request.vault_id, request.passphrase).
-        2. On success, call hardware.send_granted().
-        3. Return success message.
+        Desc: Hardware-gated passphrase unlock.
+        Arguments: vault_id, passphrase, auth_method
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    try:
+        auth.unlock_with_passphrase(request.vault_id, request.passphrase)
+        return MessageResponse(message=f"Vault {request.vault_id} unlocked successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/unlock/software", response_model=MessageResponse)
 async def unlock_software(request: SoftwareUnlockRequest):
     """
-    Software-only passphrase unlock.
-    Only works if vault policy allows software-only mode.
-
-    TODO:
-        1. Call auth.unlock_software_only(request.vault_id, request.passphrase).
-        2. Return success message.
+        Desc: Software-only passphrase unlock.
+        Arguments: vault_id, passphrase, auth_method
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Lock
-# ═══════════════════════════════════════════════════════════════════════════
+    try:
+        auth.unlock_software_only(request.vault_id, request.passphrase)
+        return MessageResponse(message=f"Vault {request.vault_id} unlocked successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/lock", response_model=MessageResponse)
 async def lock_vault():
     """
-    Lock the active vault session and clear all secrets.
-
-    TODO:
-        1. Get active vault_id from session.
-        2. Call session.lock_session(vault_id).
-        3. Call hardware.send_locked().
-        4. Write access log.
-        5. Return success message.
+        Desc: Lock the active vault session and clear all secrets.
+        Arguments: vault_id
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    vault_id = session.get_active_vault_id()
+    if vault_id is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
+        
+    session_data = session.get_session(vault_id)
+    user_id = session_data.get('active_user_id') if session_data else None
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Status
-# ═══════════════════════════════════════════════════════════════════════════
+    session.lock_session(vault_id)
+    hardware.send_locked()
+    database.write_access_log(vault_id, user_id, "lock", None, True, "Vault locked")
+    return MessageResponse(message=f"Vault {vault_id} locked successfully")
 
 @router.get("/status", response_model=StatusResponse)
 async def get_status():
     """
-    Return current vault lock state, hardware gate status,
-    and passphrase window status.
-
-    TODO:
-        1. Check session state.
-        2. Check policy settings.
-        3. Check passphrase window.
-        4. Return StatusResponse.
+        Desc: Return current vault lock state, hardware gate status,
+        and passphrase window status.
+        Arguments: vault_id
+        Returns: StatusResponse
     """
-    # Return a default locked status for now
-    return StatusResponse(is_locked=True)
+    vault_id = session.get_active_vault_id()
+    if not vault_id:
+        return StatusResponse(is_locked=True)
+        
+    is_locked = not session.is_unlocked(vault_id)
+    session_data = session.get_session(vault_id)
+    policy = database.load_vault_policy(vault_id) or {}
+    
+    return StatusResponse(
+        is_locked=is_locked,
+        vault_id=vault_id,
+        user_id=session_data['active_user_id'] if session_data else None,
+        auth_method=session_data['auth_method'] if session_data else None,
+        hardware_gate_required=bool(policy.get('hardware_gate_required', False)),
+        software_only_enabled=bool(policy.get('software_only_enabled', True)),
+        passphrase_window_active=session.is_passphrase_window_active(vault_id),
+        passphrase_window_seconds_remaining=session.get_passphrase_window_remaining(vault_id)
+    )
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Entries CRUD
-# ═══════════════════════════════════════════════════════════════════════════
+# --------------
+# Entries CRUD |
+# --------------
 
 @router.get("/entries", response_model=EntriesListResponse)
 async def list_entries():
     """
-    Return all credential entries (requires unlocked session).
-
-    TODO:
-        1. Verify session is unlocked.
-        2. Get decrypted_vault from session.
-        3. Return entries list.
+        Desc: Return all credential entries (requires unlocked session).
+        Arguments: vault_id
+        Returns: EntriesListResponse
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    vault_id = session.get_active_vault_id()
+    if vault_id is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
+    session_data = session.get_session(vault_id)
+    if session_data is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
 
+    try:
+        entries = session_data['decrypted_vault']['entries']
+        return EntriesListResponse(entries=entries, count=len(entries))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/entries", response_model=EntryResponse)
 async def add_entry(request: AddEntryRequest):
     """
-    Add a new credential entry (requires unlocked session).
-
-    TODO:
-        1. Verify session is unlocked.
-        2. Call vault.add_credential().
-        3. Return the new entry.
+        Desc: Add a new credential entry (requires unlocked session).
+        Arguments: vault_id, site, username, password
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    vault_id = session.get_active_vault_id()
+    if vault_id is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
+    session_data = session.get_session(vault_id)
+    if session_data is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
 
+    try:
+        entry = vault.add_credential(
+            vault_id,
+            request.site,
+            request.username,
+            request.password
+        )
+        database.write_access_log(vault_id, session_data["active_user_id"], "add_credential", session_data["auth_method"], True, f"Added credential for {request.site}")
+        return EntryResponse(**entry)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/entries/{entry_id}", response_model=EntryResponse)
 async def update_entry(entry_id: int, request: UpdateEntryRequest):
     """
-    Update an existing credential entry (requires unlocked session).
-
-    TODO:
-        1. Verify session is unlocked.
-        2. Call vault.update_credential().
-        3. Return the updated entry.
+        Desc: Update an existing credential entry (requires unlocked session).
+        Arguments: vault_id, entry_id, site, username, password
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    vault_id = session.get_active_vault_id()
+    if vault_id is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
+    session_data = session.get_session(vault_id)
+    if session_data is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
 
+    try:
+        entry = vault.update_credential(
+            vault_id,
+            entry_id,
+            site=request.site,
+            username=request.username,
+            password=request.password
+        )
+        database.write_access_log(vault_id, session_data["active_user_id"], "update_credential", session_data["auth_method"], True, f"Updated credential ID {entry_id}")
+        return EntryResponse(**entry)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/entries/{entry_id}", response_model=MessageResponse)
 async def delete_entry(entry_id: int):
     """
-    Delete a credential entry (requires unlocked session).
-
-    TODO:
-        1. Verify session is unlocked.
-        2. Call vault.delete_credential().
-        3. Return success message.
+        Desc: Delete a credential entry (requires unlocked session).
+        Arguments: vault_id, entry_id
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    vault_id = session.get_active_vault_id()
+    if vault_id is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
+    session_data = session.get_session(vault_id)
+    if session_data is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
 
+    try:
+        vault.delete_credential(
+            vault_id,
+            entry_id
+        )
+        database.write_access_log(vault_id, session_data["active_user_id"], "delete_credential", session_data["auth_method"], True, f"Deleted credential ID {entry_id}")
+        return MessageResponse(message=f"Entry {entry_id} deleted successfully")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/entries/search", response_model=EntriesListResponse)
 async def search_entries(q: str = ""):
     """
-    Search credential entries by site or username.
-
-    TODO:
-        1. Verify session is unlocked.
-        2. Call vault.search_credentials().
-        3. Return matching entries.
+        Desc: Search credential entries by site or username (requires unlocked session).
+        Arguments: vault_id, query
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    vault_id = session.get_active_vault_id()
+    if vault_id is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
+    session_data = session.get_session(vault_id)
+    if session_data is None:
+        raise HTTPException(status_code=400, detail="No active vault session found")
 
+    try:
+        entries = vault.search_credentials(
+            vault_id,
+            q
+        )
+        return EntriesListResponse(entries=entries, count=len(entries))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Password Utilities
-# ═══════════════════════════════════════════════════════════════════════════
+# --------------------
+# Password Utilities |
+# --------------------
 
 @router.post("/password/generate", response_model=GeneratePasswordResponse)
 async def generate_password(request: GeneratePasswordRequest):
     """
-    Generate a random password with specified options.
-
-    TODO:
-        1. Call password_utils.generate_password() with request params.
-        2. Return the generated password.
+        Desc: Generate a random password with specified options.
+        Arguments: vault_id, site, username, password
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    try:
+        password = password_utils.generate_password(
+            length=request.length,
+            use_upper=request.use_upper,
+            use_lower=request.use_lower,
+            use_digits=request.use_digits,
+            use_symbols=request.use_symbols
+        )
+        return GeneratePasswordResponse(password=password, length=len(password))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/password/check", response_model=CheckPasswordResponse)
 async def check_password(request: CheckPasswordRequest):
     """
-    Check the strength of a given password.
-
-    TODO:
-        1. Call password_utils.check_password_strength().
-        2. Return the result.
+        Desc: Check the strength of a given password.
+        Arguments: vault_id, site, username, password
+        Returns: dict, session data and vault id
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    try:
+        result = password_utils.check_password_strength(request.password)
+        return CheckPasswordResponse(result=result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Access Logs
-# ═══════════════════════════════════════════════════════════════════════════
+# -------------
+# Access Logs |
+# -------------
 
 @router.get("/logs", response_model=LogsResponse)
 async def get_logs():
     """
-    Return access logs.
-
-    TODO:
-        1. Query database for access_logs entries.
-        2. Return formatted log list.
+        Desc: Return access logs (requires unlocked session).
+        Arguments: vault_id, user_id
+        Returns: LogsResponse
     """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    try:
+        vault_id = session.get_active_vault_id()
+        if vault_id is None:
+            raise HTTPException(status_code=400, detail="No active vault session found")
+        session_data = session.get_session(vault_id)
+        if session_data is None:
+            raise HTTPException(status_code=400, detail="No active vault session found")
+
+        logs = database.get_access_logs(
+            user_id=session_data['active_user_id'],
+            vault_id=session_data['active_vault_id']
+        )
+        return LogsResponse(logs=logs, count=len(logs))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

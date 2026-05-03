@@ -4,140 +4,146 @@ serial_service.py — Raw Arduino serial communication.
 Handles the low-level serial port connection to the Arduino.
 Runs a background listener thread that reads messages and dispatches
 them to the hardware module.
-
-Expected Arduino messages:
-    PIN_ATTEMPT:122004
-
-Expected backend responses:
-    GRANTED | DENIED | PENDING | LOCKED
 """
 
 import threading
+import time
 
-# import serial  # pyserial
+import serial
 
 from app.config import SERIAL_PORT, BAUD_RATE
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Module State
-# ═══════════════════════════════════════════════════════════════════════════
+# --------------
+# Module State |
+# --------------
 
 _serial_connection = None        # serial.Serial instance
 _listener_thread: threading.Thread | None = None
 _running = False
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Connection Management
-# ═══════════════════════════════════════════════════════════════════════════
+# -----------------------
+# Connection Management |
+# -----------------------
 
 def connect(port: str = SERIAL_PORT, baud: int = BAUD_RATE) -> bool:
     """
-    Open the serial connection to the Arduino.
-
-    Args:
-        port: Serial port path (e.g., "/dev/ttyACM0" or "COM3").
-        baud: Baud rate (default 9600).
-
-    Returns:
-        True if connection was successful.
-
-    TODO:
-        1. Create serial.Serial(port, baud, timeout=1).
-        2. Store in _serial_connection.
-        3. Handle serial.SerialException gracefully.
+        Desc: Open the serial connection to the Arduino.
+        Args:
+            port: Serial port path (e.g., "/dev/ttyACM0" or "COM3").
+            baud: Baud rate (default 9600).
+        Returns: True if connection was successful.
     """
-    raise NotImplementedError("connect")
+    global _serial_connection
+
+    try:
+        _serial_connection = serial.Serial(port, baud, timeout=1)
+        time.sleep(2)
+        return True
+    except serial.SerialException as e:
+        print(f"[serial_service] Connection failed: {e}")
+        _serial_connection = None
+        return False
 
 
 def disconnect() -> None:
     """
-    Close the serial connection.
-
-    TODO:
-        1. Stop the listener thread (_running = False).
-        2. Close _serial_connection if open.
+        Desc: Close the serial connection and stop the listener thread.
     """
-    raise NotImplementedError("disconnect")
+    global _serial_connection, _running
+
+    _running = False
+
+    if _listener_thread is not None:
+        _listener_thread.join(timeout=3)
+
+    if _serial_connection is not None and _serial_connection.is_open:
+        _serial_connection.close()
+        _serial_connection = None
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Message I/O
-# ═══════════════════════════════════════════════════════════════════════════
+# -------------
+# Message I/O |
+# -------------
 
 def read_message() -> str | None:
     """
-    Read one line from the serial port.
-
-    Returns:
-        Decoded message string (stripped), or None if no data.
-
-    TODO:
-        1. Read a line from _serial_connection.
-        2. Decode as UTF-8.
-        3. Strip whitespace.
-        4. Return None if empty or if connection is not open.
+        Desc: Read one line from the serial port.
+        Returns: Decoded message string (stripped), or None if no data.
     """
-    raise NotImplementedError("read_message")
+    if _serial_connection is None or not _serial_connection.is_open: return None
+
+    try:
+        raw = _serial_connection.readline()
+        if raw:
+            message = raw.decode("utf-8").strip()
+            return message if message else None
+        return None
+    except (serial.SerialException, UnicodeDecodeError) as e:
+        print(f"[serial_service] Read error: {e}")
+        return None
 
 
 def send_message(message: str) -> None:
     """
-    Send a response message to the Arduino.
-
-    Args:
-        message: One of "GRANTED", "DENIED", "PENDING", "LOCKED".
-
-    TODO:
-        1. Encode message as UTF-8 with newline.
-        2. Write to _serial_connection.
+        Desc: Send a response message to the Arduino.
+        Args: message: One of "GRANTED", "DENIED", "PENDING", "LOCKED".
     """
-    raise NotImplementedError("send_message")
+    if _serial_connection is None or not _serial_connection.is_open:
+        print(f"[serial_service] Cannot send '{message}': no connection")
+        return
+
+    try:
+        _serial_connection.write((message + "\n").encode("utf-8"))
+        _serial_connection.flush()
+    except serial.SerialException as e:
+        print(f"[serial_service] Write error: {e}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Background Listener
-# ═══════════════════════════════════════════════════════════════════════════
+# ---------------------
+# Background Listener |
+# ---------------------
 
 def start_serial_listener(on_pin_attempt=None) -> None:
     """
-    Start a background thread that continuously reads from the serial port.
-
-    Args:
-        on_pin_attempt: Callback function that receives a PIN string.
-                        Called when a valid PIN_ATTEMPT message is parsed.
-
-    TODO:
-        1. Set _running = True.
-        2. Start a daemon thread that loops:
-           a. Call read_message().
-           b. Call parse_pin_attempt() on the message.
-           c. If a valid PIN is parsed, call on_pin_attempt(pin).
+        Desc: Start a background thread that continuously reads from the serial port.
+        Args: on_pin_attempt: Callback function that receives a PIN string, called when a valid PIN_ATTEMPT message is parsed.
     """
-    raise NotImplementedError("start_serial_listener")
+    global _listener_thread, _running
+
+    if _running: return
+
+    _running = True
+
+    def _listener_loop():
+        while _running:
+            message = read_message()
+            if message:
+                pin = parse_pin_attempt(message)
+                if pin and on_pin_attempt:
+                    on_pin_attempt(pin)
+
+    _listener_thread = threading.Thread(target=_listener_loop, daemon=True)
+    _listener_thread.start()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Message Parsing
-# ═══════════════════════════════════════════════════════════════════════════
+# -----------------
+# Message Parsing |
+# -----------------
 
 def parse_pin_attempt(message: str) -> str | None:
     """
-    Parse a PIN attempt from an Arduino message.
-
-    Expected format: "PIN_ATTEMPT:XXXXXX"
-
-    Args:
-        message: Raw message from Arduino.
-
-    Returns:
-        The 6-digit PIN string, or None if the message doesn't match.
-
-    TODO:
-        1. Check if message starts with "PIN_ATTEMPT:".
-        2. Extract the PIN portion.
-        3. Validate it is exactly 6 digits.
-        4. Return the PIN or None.
+        Desc: Parse a PIN attempt from an Arduino message.
+        Args: message: Raw message from Arduino.
+        Returns: The 6-digit PIN string, or None if the message doesn't match.
     """
-    raise NotImplementedError("parse_pin_attempt")
+    prefix = "PIN_ATTEMPT:"
+    if not message.startswith(prefix): return None
+
+    pin = message[len(prefix):]
+
+    if len(pin) == 6 and pin.isdigit():
+        return pin
+
+    return None

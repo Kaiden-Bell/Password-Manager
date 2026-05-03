@@ -1,15 +1,14 @@
 """
 models.py — Pydantic v2 request/response models for the API.
 
-These models define the contract between frontend and backend.
+Defines the frontend <--> backend contract.
 """
 
 from pydantic import BaseModel, Field
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Request Models
-# ═══════════════════════════════════════════════════════════════════════════
+# ----------------
+# Request Models |
+# ----------------
 
 class InitRequest(BaseModel):
     """POST /api/init — Initialize a new vault."""
@@ -17,22 +16,19 @@ class InitRequest(BaseModel):
     display_name: str
     vault_name: str
     passphrase: str
-    keypad_pin: str | None = None                  # Optional 6-digit PIN
+    keypad_pin: str | None = None
     hardware_gate_required: bool = False
     software_only_enabled: bool = True
-
 
 class PassphraseUnlockRequest(BaseModel):
     """POST /api/unlock/passphrase — Hardware-gated unlock."""
     vault_id: int
     passphrase: str
 
-
 class SoftwareUnlockRequest(BaseModel):
     """POST /api/unlock/software — Software-only unlock."""
     vault_id: int
     passphrase: str
-
 
 class AddEntryRequest(BaseModel):
     """POST /api/entries — Add a new credential."""
@@ -40,13 +36,11 @@ class AddEntryRequest(BaseModel):
     username: str
     password: str
 
-
 class UpdateEntryRequest(BaseModel):
     """PUT /api/entries/{entry_id} — Update a credential."""
     site: str | None = None
     username: str | None = None
     password: str | None = None
-
 
 class GeneratePasswordRequest(BaseModel):
     """POST /api/password/generate — Generate a random password."""
@@ -56,21 +50,18 @@ class GeneratePasswordRequest(BaseModel):
     use_digits: bool = True
     use_symbols: bool = True
 
-
 class CheckPasswordRequest(BaseModel):
     """POST /api/password/check — Check password strength."""
     password: str
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Response Models
-# ═══════════════════════════════════════════════════════════════════════════
+# -----------------
+# Response Models |
+# -----------------
 
 class MessageResponse(BaseModel):
     """Generic success/error message."""
     message: str
     success: bool = True
-
 
 class StatusResponse(BaseModel):
     """GET /api/status — Current vault status."""
@@ -83,7 +74,6 @@ class StatusResponse(BaseModel):
     passphrase_window_active: bool = False
     passphrase_window_seconds_remaining: float = 0.0
 
-
 class EntryResponse(BaseModel):
     """Single credential entry."""
     entry_id: int
@@ -92,25 +82,21 @@ class EntryResponse(BaseModel):
     password: str
     last_rotated: str
 
-
 class EntriesListResponse(BaseModel):
     """GET /api/entries — List of credential entries."""
     entries: list[EntryResponse]
     count: int
-
 
 class GeneratePasswordResponse(BaseModel):
     """POST /api/password/generate — Generated password result."""
     password: str
     length: int
 
-
 class CheckPasswordResponse(BaseModel):
     """POST /api/password/check — Password strength result."""
     score: int = Field(ge=0, le=4, description="0=very weak, 4=very strong")
     label: str
     feedback: list[str]
-
 
 class LogEntry(BaseModel):
     """Single access log entry."""
@@ -122,7 +108,6 @@ class LogEntry(BaseModel):
     success: bool
     details: str | None
     timestamp: str
-
 
 class LogsResponse(BaseModel):
     """GET /api/logs — Access log listing."""

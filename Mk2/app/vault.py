@@ -56,7 +56,8 @@ def load_decrypted_vault(vault_id: int, master_key: bytes) -> dict:
     if not result:
         return create_empty_vault()
 
-    enc_b64, nonce_b64 = result
+    enc_b64 = result["encrypted_blob"]
+    nonce_b64 = result["nonce"]
 
     decrypted_data = crypto.decrypt_xchacha20_poly1305(enc_b64, nonce_b64, master_key)
     

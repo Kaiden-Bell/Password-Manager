@@ -26,33 +26,30 @@ from app.config import (
     KEY_LENGTH,
 )
 
-
-# ------------  
-# Random gen |
-# ------------
+# --------------------------------
+# Random generation              |
+# (salt, nonce, and master key)  |
+# --------------------------------
 
 def generate_salt() -> bytes:
-
     salt = os.urandom(16)
 
     return salt
 
 def generate_nonce() -> bytes:
-
     nonce = os.urandom(24)
 
     return nonce
 
 def generate_master_key() -> bytes:
-
     master_key = os.urandom(KEY_LENGTH)
 
     return master_key
 
-
-# ---------
-# Key Gen |
-# ---------
+# -------------------
+# Key derivation    |
+# (Argon2id-based)  |
+# -------------------
 
 def derive_key_argon2id(
     secret: str | bytes,
@@ -62,7 +59,6 @@ def derive_key_argon2id(
     parallelism: int = ARGON2_PARALLELISM,
     key_length: int = KEY_LENGTH,
 ) -> bytes:
-
     if isinstance(secret, str):
         secret = secret.encode("utf-8")
 
@@ -78,16 +74,15 @@ def derive_key_argon2id(
 
     return derived_key
 
-
-# ---------------------------------
-# Encryption — XChaCha20-Poly1305 |
-# ---------------------------------
+# --------------------
+# Encryption         |
+# XChaCha20-Poly1305 |
+# --------------------
 
 def encrypt_xchacha20_poly1305(
     plaintext_bytes: bytes,
     key: bytes,
 ) -> tuple[str, str]:
-
     box = SecretBox(key)
     nonce = nacl_random(box.NONCE_SIZE)
     encrypted = box.encrypt(plaintext_bytes, nonce)
@@ -102,7 +97,6 @@ def decrypt_xchacha20_poly1305(
     nonce_b64: str,
     key: bytes,
 ) -> bytes:
-
     box = SecretBox(key)
     ciphertext = base64.b64decode(ciphertext_b64)
     nonce = base64.b64decode(nonce_b64)
@@ -111,44 +105,38 @@ def decrypt_xchacha20_poly1305(
 
     return decrypted
 
-
-# -----------------
-# Master Key Wrap |
-# -----------------
+# ------------------------
+# Master key wrapping    |
+# (XChaCha20-Poly1305)   |
+# ------------------------
 
 def wrap_master_key(
     master_key: bytes,
     wrapping_key: bytes,
 ) -> tuple[str, str]:
-
     return encrypt_xchacha20_poly1305(master_key, wrapping_key)
-
 
 def unwrap_master_key(
     wrapped_master_key_b64: str,
     nonce_b64: str,
     wrapping_key: bytes,
 ) -> bytes:
-
     try:
         return decrypt_xchacha20_poly1305(wrapped_master_key_b64, nonce_b64, wrapping_key)
     except CryptoError:
         raise
 
-
-# -------------------------------
-# Keypad PIN (Hardware Hashing) |
-# -------------------------------
+# --------------------
+# Keypad PIN         |
+# (Hardware Hashing) |
+# --------------------
 
 def hash_keypad_pin(pin: str, salt: bytes) -> str:
-
     return hashlib.sha256(salt + pin.encode()).hexdigest()
-
 
 def verify_keypad_pin(
     pin_attempt: str,
     stored_hash: str,
     salt: bytes,
 ) -> bool:
-
     return hash_keypad_pin(pin_attempt, salt) == stored_hash

@@ -61,7 +61,7 @@ def initialize_vault(
     empty_vault_bytes = json.dumps(empty_vault).encode("utf-8")
     encrypted_vault_blob, nonce = crypto.encrypt_xchacha20_poly1305(empty_vault_bytes, master_key)
     database.save_vault_data(vault_id, encrypted_vault_blob, nonce)
-    database.write_access_log(vault_id, "initialize", "hardware_gated", True, "Vault initialized")
+    database.write_access_log(vault_id, user, "initialize", "hardware_gated", True, "Vault initialized")
     return {"user_id": user, "vault_id": vault_id, "success": True}
 
 # --------------
@@ -159,8 +159,10 @@ def unlock_with_passphrase(
     )
     master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
     vault_data = vault.load_decrypted_vault(vault_id, master_key)
-    session.create_session(vault_id, vault_data, master_key)
-    database.write_access_log(vault_id, "unlock", auth_method, True, "Vault unlocked")
+    vault_record = database.load_vault(vault_id)
+    user_id = vault_record["user_id"] if vault_record else None
+    session.create_session(user_id, vault_id, auth_method, vault_data, master_key)
+    database.write_access_log(vault_id, user_id, "unlock", auth_method, True, "Vault unlocked")
 
     return {"success": True}
 
@@ -193,7 +195,9 @@ def unlock_software_only(vault_id: int, passphrase: str) -> dict:
     )
     master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
     vault_data = vault.load_decrypted_vault(vault_id, master_key)
-    session.create_session(vault_id, vault_data, master_key)
-    database.write_access_log(vault_id, "unlock", "software_only", True, "Vault unlocked")
+    vault_record = database.load_vault(vault_id)
+    user_id = vault_record["user_id"] if vault_record else None
+    session.create_session(user_id, vault_id, "software_only", vault_data, master_key)
+    database.write_access_log(vault_id, user_id, "unlock", "software_only", True, "Vault unlocked")
 
     return {"success": True}

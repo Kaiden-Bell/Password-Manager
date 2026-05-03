@@ -20,17 +20,17 @@
 
 #include <Keypad.h>
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Pin Definitions
-// ═══════════════════════════════════════════════════════════════════════════
+// -----------------
+// Pin Definitions |
+// -----------------
 
 const int GREEN_LED  = 22;
 const int YELLOW_LED = 24;
 const int RED_LED    = 26;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Keypad Configuration
-// ═══════════════════════════════════════════════════════════════════════════
+// ----------------------
+// Keypad Configuration |
+// ----------------------
 
 const byte ROWS = 4;
 const byte COLS = 4;
@@ -43,22 +43,22 @@ char keys[ROWS][COLS] = {
 };
 
 // TODO: Update these pin assignments for your wiring
-byte rowPins[ROWS] = {30, 32, 34, 36};
-byte colPins[COLS] = {38, 40, 42, 44};
+byte rowPins[ROWS] = {34, 36, 38, 40};
+byte colPins[COLS] = {42, 44, 46, 48};
 
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-// ═══════════════════════════════════════════════════════════════════════════
-// State
-// ═══════════════════════════════════════════════════════════════════════════
+// -------
+// State |
+// -------
 
 const int PIN_LENGTH = 6;
-char pinBuffer[PIN_LENGTH + 1];  // +1 for null terminator
+char pinBuffer[PIN_LENGTH + 1];
 int pinIndex = 0;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Setup
-// ═══════════════════════════════════════════════════════════════════════════
+// -------
+// Setup |
+// -------
 
 void setup() {
     Serial.begin(9600);
@@ -73,19 +73,17 @@ void setup() {
     Serial.println("KEYPAD_READY");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Main Loop
-// ═══════════════════════════════════════════════════════════════════════════
+// -----------
+// Main Loop |
+// -----------
 
 void loop() {
-    // --- Read keypad input ---
     char key = keypad.getKey();
 
     if (key) {
         handleKeyPress(key);
     }
 
-    // --- Check for serial responses from Python ---
     if (Serial.available() > 0) {
         String response = Serial.readStringUntil('\n');
         response.trim();
@@ -93,19 +91,17 @@ void loop() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Key Press Handler
-// ═══════════════════════════════════════════════════════════════════════════
+// -------------------
+// Key Press Handler | 
+// -------------------
 
 void handleKeyPress(char key) {
     /*
-     * TODO: Implement key press handling.
-     *
      * Behavior:
      *   - '#' = Submit PIN (if 6 digits entered)
      *   - '*' = Clear / cancel current PIN entry
      *   - '0'-'9' = Append digit to PIN buffer
-     *   - 'A'-'D' = Ignore (or use for special functions)
+     *   - 'A'-'D' = Ignore (reserved for future special functions)
      *
      * When PIN is complete (6 digits + '#'):
      *   1. Send "PIN_ATTEMPT:XXXXXX" over serial.
@@ -113,34 +109,88 @@ void handleKeyPress(char key) {
      *   3. Clear the PIN buffer.
      */
 
-    // Placeholder: echo key back for debugging
-    Serial.print("KEY:");
-    Serial.println(key);
+    if (key == '*') {
+        // Clear / cancel: reset the buffer and LEDs
+        clearPinBuffer();
+        resetLEDs();
+        Serial.println("PIN_CLEARED");
+        return;
+    }
+
+    if (key == '#') {
+        // Submit: only if we have exactly 6 digits
+        if (pinIndex == PIN_LENGTH) {
+            // Flash yellow to indicate transmission
+            setYellow();
+
+            // Send the PIN attempt to the Python backend
+            Serial.print("PIN_ATTEMPT:");
+            Serial.println(pinBuffer);
+
+            // Clear the buffer for the next attempt
+            clearPinBuffer();
+
+            // Brief yellow flash, then turn off
+            // (response handler will set the final LED state)
+            delay(200);
+            resetLEDs();
+        } else {
+            // Not enough digits — flash red briefly as feedback
+            flashRed(300);
+        }
+        return;
+    }
+
+    if (key >= 'A' && key <= 'D') {
+        // Ignore letter keys (reserved for future use)
+        return;
+    }
+
+    // Digit key: '0'-'9'
+    if (key >= '0' && key <= '9') {
+        if (pinIndex < PIN_LENGTH) {
+            pinBuffer[pinIndex] = key;
+            pinIndex++;
+            // Acknowledge digit with a brief yellow blink
+            digitalWrite(YELLOW_LED, HIGH);
+            delay(50);
+            digitalWrite(YELLOW_LED, LOW);
+        }
+        // If already at 6 digits, ignore further digits until '#' or '*'
+    }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Response Handler
-// ═══════════════════════════════════════════════════════════════════════════
+// ------------------
+// Response Handler |
+// ------------------
 
 void handleResponse(String response) {
     /*
-     * TODO: Implement response handling from Python backend.
-     *
-     * Expected responses:
+     * Expected responses from Python backend:
      *   "GRANTED"  → Turn on GREEN LED, turn off others.
      *   "DENIED"   → Flash RED LED for 2 seconds, then reset.
      *   "PENDING"  → Turn on YELLOW LED (passphrase window open).
      *   "LOCKED"   → Reset all LEDs.
      */
 
-    // Placeholder: echo response for debugging
-    Serial.print("RECV:");
-    Serial.println(response);
+    if (response == "GRANTED") {
+        setGreen();
+    }
+    else if (response == "DENIED") {
+        flashRed(2000);
+    }
+    else if (response == "PENDING") {
+        setYellow();
+    }
+    else if (response == "LOCKED") {
+        resetLEDs();
+    }
+    // Unknown responses are silently ignored
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// LED Control
-// ═══════════════════════════════════════════════════════════════════════════
+// -------------
+// LED Control |
+// -------------
 
 void resetLEDs() {
     digitalWrite(GREEN_LED, LOW);
@@ -163,9 +213,15 @@ void setRed() {
     digitalWrite(RED_LED, HIGH);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PIN Buffer
-// ═══════════════════════════════════════════════════════════════════════════
+void flashRed(unsigned long duration) {
+    setRed();
+    delay(duration);
+    resetLEDs();
+}
+
+// ------------
+// PIN Buffer |
+// ------------
 
 void clearPinBuffer() {
     memset(pinBuffer, 0, sizeof(pinBuffer));

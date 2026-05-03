@@ -88,7 +88,7 @@ class TestLoadSaveVault:
         vault_data = {"entries": [{"entry_id": 0, "site": "x.com"}]}
         json_bytes = json.dumps(vault_data).encode("utf-8")
 
-        mock_db.load_vault_data.return_value = ("enc_blob_b64", "nonce_b64")
+        mock_db.load_vault_data.return_value = {"encrypted_blob": "enc_blob_b64", "nonce": "nonce_b64"}
         mock_crypto.decrypt_xchacha20_poly1305.return_value = json_bytes
 
         result = load_decrypted_vault(VAULT_ID, MASTER_KEY)

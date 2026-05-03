@@ -3,11 +3,6 @@ session.py — In-memory session manager.
 
 Tracks vault unlock state, decrypted data, and passphrase windows.
 All secrets are held only in memory and cleared on lock.
-
-Security Notes:
-    - Decrypted vault data and master key exist ONLY in session memory.
-    - Locking a session MUST zero out secrets.
-    - Sessions auto-expire after SESSION_TIMEOUT_SECONDS of inactivity.
 """
 
 import time
@@ -62,7 +57,9 @@ def create_session(
     
 def is_unlocked(vault_id: int) -> bool:
     """
-    Check if a vault has an active, unlocked session.
+        Desc: Check if a vault has an active, unlocked session.
+        Args: vault_id: The ID of the vault to check.
+        Return: bool: True if the vault has an active, unlocked session, False otherwise.
     """
     session = _sessions.get(vault_id)
     if not session: return False
@@ -70,7 +67,9 @@ def is_unlocked(vault_id: int) -> bool:
 
 def get_session(vault_id: int) -> dict | None:
     """
-    Retrieve the session dict for a vault, or None if not found.
+        Desc: Retrieve the session dict for a vault, or None if not found.
+        Args: vault_id: The ID of the vault to retrieve the session for.
+        Return: dict | None: The session dict for the vault, or None if the vault is not found.
     """
     session = _sessions.get(vault_id)
     
@@ -78,8 +77,9 @@ def get_session(vault_id: int) -> dict | None:
 
 def get_active_vault_id() -> int | None:
     """
-    Return the vault_id of the currently active (unlocked) session.
-    Assumes only one session is active at a time.
+        Desc: Return the vault_id of the currently active (unlocked) session.
+        Args: None
+        Return: int | None: The vault_id of the currently active (unlocked) session, or None if no session is active.
     """
     for vault_id in _sessions:
         if is_unlocked(vault_id):
@@ -88,9 +88,10 @@ def get_active_vault_id() -> int | None:
 
 def touch_session(vault_id: int) -> None:
     """
-    Update last_activity timestamp to prevent session timeout.
+        Desc: Update last_activity timestamp to prevent session timeout.
+        Args: vault_id: The ID of the vault to touch.
+        Return: None
     """
-
     session = _sessions.get(vault_id)
 
     if session and is_unlocked(vault_id):
@@ -100,9 +101,10 @@ def touch_session(vault_id: int) -> None:
 
 def lock_session(vault_id: int) -> None:
     """
-    Lock a vault session and clear all secrets from memory.
+        Desc: Lock a vault session and clear all secrets from memory.
+        Args: vault_id: The ID of the vault to lock.
+        Return: None
     """
-
     session = _sessions.get(vault_id)
 
     if session and is_unlocked(vault_id):
@@ -112,10 +114,11 @@ def lock_session(vault_id: int) -> None:
         pass
 
 def expire_old_sessions() -> list[int]:
+    """ 
+        Desc: Find and lock sessions that have exceeded SESSION_TIMEOUT_SECONDS.
+        Args: None
+        Return: list[int]: A list of vault_ids that were expired.
     """
-    Find and lock sessions that have exceeded SESSION_TIMEOUT_SECONDS.
-    """
-
     expired_sessions = []
 
     for vault_id, session in _sessions.items():
@@ -128,9 +131,10 @@ def expire_old_sessions() -> list[int]:
 
 def clear_secrets(vault_id: int) -> None:
     """
-    Securely clear decrypted vault data and master key from a session.
+        Desc: Securely clear decrypted vault data and master key from a session.
+        Args: vault_id: The ID of the vault to clear secrets from.
+        Return: None
     """
-
     session = _sessions.get(vault_id)
 
     if session:
@@ -147,18 +151,22 @@ def open_passphrase_window(
     seconds: int = GATE_WINDOW_SECONDS,
 ) -> float:
     """
-    Open a temporary passphrase-entry window for a vault.
+        Desc: Open a temporary passphrase-entry window for a vault.
+        Args: 
+            vault_id: The ID of the vault to open the window for.
+            seconds: The number of seconds to keep the window open.
+        Return: float: The expiry time of the window.
     """
-
     expiry = time.time() + seconds
     _passphrase_windows[vault_id] = expiry
     return expiry
 
 def is_passphrase_window_active(vault_id: int) -> bool:
     """
-    Check whether the passphrase window is still open.
+        Desc: Check whether the passphrase window is still open.
+        Args: vault_id: The ID of the vault to check.
+        Return: bool: True if the passphrase window is active, False otherwise.
     """
-
     if vault_id not in _passphrase_windows:
         return False
 
@@ -170,15 +178,18 @@ def is_passphrase_window_active(vault_id: int) -> bool:
 
 def close_passphrase_window(vault_id: int) -> None:
     """
-    Close the passphrase window for a vault.
+        Desc: Close the passphrase window for a vault.
+        Args: vault_id: The ID of the vault to close the window for.
+        Return: None
     """
-
     if vault_id in _passphrase_windows:
         del _passphrase_windows[vault_id]
 
 def get_passphrase_window_remaining(vault_id: int) -> float:
     """
-    Get the remaining seconds of the passphrase window.
+        Desc: Get the remaining seconds of the passphrase window.
+        Args: vault_id: The ID of the vault to get the remaining seconds for.
+        Return: float: The remaining seconds of the passphrase window.
     """
     if not is_passphrase_window_active(vault_id):
         return 0.0

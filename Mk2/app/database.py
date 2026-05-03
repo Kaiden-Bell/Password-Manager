@@ -138,10 +138,9 @@ def _now() -> str:
 
     return datetime.now(timezone.utc).isoformat()
 
-
-# ------
-# User |
-# ------
+# -----------
+# User CRUD |
+# -----------
 
 def create_user(username: str, display_name: str) -> int:
     conn = get_connection()
@@ -160,9 +159,19 @@ def create_user(username: str, display_name: str) -> int:
         conn.close()
 
 
-# -------
-# Vault |
-# -------
+# ------------
+# Vault CRUD |
+# ------------
+
+def list_vaults() -> list[dict]:
+    """Return all vaults (id + name) for the unlock dropdown."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT vault_id, vault_name FROM vaults ORDER BY vault_id")
+        return [{"vault_id": row["vault_id"], "vault_name": row["vault_name"]} for row in cursor.fetchall()]
+    finally:
+        conn.close()
 
 def create_vault(user_id: int, vault_name: str) -> int:
     conn = get_connection()
@@ -221,7 +230,6 @@ def create_vault_policy(
     finally:
         conn.close()
 
-
 # ------------
 # Auth Creds |
 # ------------
@@ -241,7 +249,7 @@ def save_auth_credentials(
             INSERT INTO auth_credentials (vault_id, passphrase_salt, wrapped_master_key, wrapped_master_key_nonce, kdf_name, kdf_memory_cost, kdf_time_cost, kdf_parallelism, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (vault_id, passphrase_salt, wrapped_master_key, wrapped_master_key_nonce, kdf_params["kdf_name"], kdf_params["kdf_memory_cost"], kdf_params["kdf_time_cost"], kdf_params["kdf_parallelism"], _now(), _now()),
+            (vault_id, passphrase_salt, wrapped_master_key, wrapped_master_key_nonce, kdf_params.get("kdf_name", "argon2id"), kdf_params.get("memory_cost", kdf_params.get("kdf_memory_cost")), kdf_params.get("time_cost", kdf_params.get("kdf_time_cost")), kdf_params.get("parallelism", kdf_params.get("kdf_parallelism")), _now(), _now()),
         )
         conn.commit()
         return cursor.lastrowid
@@ -268,7 +276,6 @@ def load_auth_credentials(vault_id: int) -> dict | None:
     finally:
         conn.close()
 
-
 # ----------
 # Hardware |
 # ----------
@@ -293,7 +300,6 @@ def save_hardware_auth(
     finally:
         conn.close()
 
-
 def load_hardware_auth(vault_id: int) -> dict | None:
     conn = get_connection()
     try:
@@ -312,7 +318,6 @@ def load_hardware_auth(vault_id: int) -> dict | None:
         return None
     finally:
         conn.close()
-
 
 def increment_failed_pin_attempts(vault_id: int) -> None:
     conn = get_connection()
@@ -345,9 +350,6 @@ def get_failed_pin_attempts(vault_id: int) -> int:
     finally:
         conn.close()
 
-
-
-
 def reset_failed_pin_attempts(vault_id: int) -> None:
     conn = get_connection()
     try:
@@ -364,6 +366,41 @@ def reset_failed_pin_attempts(vault_id: int) -> None:
     finally:
         conn.close()
 
+# ---------------
+# Vault Status  |
+# ---------------
+
+def lock_vault(vault_id: int) -> None:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE vaults 
+            SET vault_status = 'LOCKED', updated_at = ?
+            WHERE vault_id = ?
+            """,
+            (_now(), vault_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+def unlock_vault(vault_id: int) -> None:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE vaults 
+            SET vault_status = 'UNLOCKED', updated_at = ?
+            WHERE vault_id = ?
+            """,
+            (_now(), vault_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 # --------------
 # Vault Policy |
@@ -387,7 +424,6 @@ def load_vault_policy(vault_id: int) -> dict | None:
         return None
     finally:
         conn.close()
-
 
 # ----------------------
 # Vault Data Encrypted |
@@ -414,7 +450,6 @@ def save_vault_data(
     finally:
         conn.close()
 
-
 def load_vault_data(vault_id: int) -> dict | None:
     conn = get_connection()
     try:
@@ -433,7 +468,6 @@ def load_vault_data(vault_id: int) -> dict | None:
         return None
     finally:
         conn.close()
-
 
 def update_vault_data(
     vault_id: int,
@@ -454,7 +488,6 @@ def update_vault_data(
         conn.commit()
     finally:
         conn.close()
-
 
 # -------------
 # Access Logs |

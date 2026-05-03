@@ -3,166 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="The Vault — Local encrypted password manager with optional hardware keypad gating.">
     <title>The Vault</title>
     <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
+    <div id="app">
+        <!-- Auth View -->
+        <div id="auth-view" class="view">
+            <div class="glass-card auth-container">
+                <div class="logo">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <h1>The Vault</h1>
+                </div>
+                
+                <div id="unlock-section">
+                    <p class="subtitle">Secure Credential Management</p>
+                    <form id="unlock-form">
+                        <div class="input-group">
+                            <i class="fa-solid fa-box"></i>
+                            <select id="unlock-vault-id" required>
+                                <option value="" disabled selected>Select a Vault</option>
+                            </select>
+                        </div>
+                        <div id="hw-waiting" class="hw-waiting hidden">
+                            <div class="hw-waiting-icon"><i class="fa-solid fa-keyboard"></i></div>
+                            <p>Enter your PIN on the hardware keypad</p>
+                            <span class="hw-waiting-sub">Waiting for keypad input…</span>
+                        </div>
+                        <div id="hw-ready" class="hw-ready hidden">
+                            <i class="fa-solid fa-circle-check"></i> PIN accepted — enter your passphrase
+                        </div>
+                        <div class="input-group" id="unlock-passphrase-group">
+                            <i class="fa-solid fa-key"></i>
+                            <input type="password" id="unlock-passphrase" placeholder="Enter Passphrase" required>
+                        </div>
+                        <button type="submit" id="unlock-btn" class="btn primary-btn">Unlock Vault</button>
+                    </form>
+                    <p class="switch-mode">New user? <a href="#" id="show-init">Initialize Vault</a></p>
+                </div>
 
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- Header                                                         -->
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <header id="app-header">
-        <h1>🔒 The Vault</h1>
-        <div id="status-indicator" class="status locked">LOCKED</div>
-    </header>
-
-    <main id="app-main">
-
-        <!-- ═══════════════════════════════════════════════════════════ -->
-        <!-- Section 1: Initialization                                  -->
-        <!-- ═══════════════════════════════════════════════════════════ -->
-        <section id="init-section" class="panel">
-            <h2>Initialize Vault</h2>
-            <form id="init-form">
-                <div class="form-group">
-                    <label for="init-username">Username</label>
-                    <input type="text" id="init-username" required placeholder="e.g. kaiden">
+                <div id="init-section" class="hidden">
+                    <p class="subtitle">Initialize New Vault</p>
+                    <form id="init-form">
+                        <div class="input-group"><i class="fa-solid fa-user"></i><input type="text" id="init-username" placeholder="Username / Display Name" required></div>
+                        <div class="input-group"><i class="fa-solid fa-id-card"></i><input type="text" id="init-display" placeholder="Real Name" required></div>
+                        <div class="input-group"><i class="fa-solid fa-box"></i><input type="text" id="init-vault" placeholder="Vault Name" required></div>
+                        <div class="input-group"><i class="fa-solid fa-key"></i><input type="password" id="init-passphrase" placeholder="Master Passphrase" required></div>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" id="init-hw-req"> Require Hardware Keypad</label>
+                        </div>
+                        <div class="input-group hidden" id="pin-input-group"><i class="fa-solid fa-calculator"></i><input type="text" id="init-pin" placeholder="Hardware PIN (4 digits)"></div>
+                        <button type="submit" class="btn primary-btn">Create Vault</button>
+                    </form>
+                    <p class="switch-mode">Already have a vault? <a href="#" id="show-unlock">Unlock</a></p>
                 </div>
-                <div class="form-group">
-                    <label for="init-display-name">Display Name</label>
-                    <input type="text" id="init-display-name" required placeholder="e.g. Kaiden Bell">
-                </div>
-                <div class="form-group">
-                    <label for="init-vault-name">Vault Name</label>
-                    <input type="text" id="init-vault-name" required placeholder="e.g. My Vault">
-                </div>
-                <div class="form-group">
-                    <label for="init-passphrase">Passphrase</label>
-                    <input type="password" id="init-passphrase" required placeholder="Strong passphrase...">
-                </div>
-                <div class="form-group">
-                    <label for="init-keypad-pin">Keypad PIN (optional, 6 digits)</label>
-                    <input type="text" id="init-keypad-pin" maxlength="6" pattern="\d{6}" placeholder="e.g. 122004">
-                </div>
-                <div class="form-group checkbox-group">
-                    <label>
-                        <input type="checkbox" id="init-hardware-gate">
-                        Require hardware keypad gate
-                    </label>
-                </div>
-                <div class="form-group checkbox-group">
-                    <label>
-                        <input type="checkbox" id="init-software-only" checked>
-                        Allow software-only unlock
-                    </label>
-                </div>
-                <button type="submit" id="init-submit-btn" class="btn btn-primary">Create Vault</button>
-            </form>
-            <div id="init-message" class="message" role="alert"></div>
-        </section>
-
-        <!-- ═══════════════════════════════════════════════════════════ -->
-        <!-- Section 2: Unlock                                          -->
-        <!-- ═══════════════════════════════════════════════════════════ -->
-        <section id="unlock-section" class="panel hidden">
-            <h2>Unlock Vault</h2>
-
-            <div id="hardware-gate-status" class="info-box">
-                <p>Hardware gate status: <span id="gate-status-text">Unknown</span></p>
-                <p>Passphrase window: <span id="window-status-text">Inactive</span></p>
+                <div id="auth-error" class="error-msg"></div>
             </div>
+        </div>
 
-            <form id="unlock-form">
-                <div class="form-group">
-                    <label for="unlock-vault-id">Vault ID</label>
-                    <input type="number" id="unlock-vault-id" required value="1" min="1">
+        <!-- Vault View -->
+        <div id="vault-view" class="view hidden">
+            <header class="vault-header">
+                <div class="logo-small">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>The Vault</span>
                 </div>
-                <div class="form-group">
-                    <label for="unlock-passphrase">Passphrase</label>
-                    <input type="password" id="unlock-passphrase" required placeholder="Enter passphrase...">
+                <div class="header-actions">
+                    <span id="hardware-status" class="hardware-status" title="Hardware Connection">
+                        <i class="fa-solid fa-microchip"></i>
+                    </span>
+                    <button id="lock-btn" class="btn secondary-btn"><i class="fa-solid fa-lock"></i> Lock</button>
                 </div>
-                <div class="form-group checkbox-group">
-                    <label>
-                        <input type="checkbox" id="unlock-software-mode">
-                        Software-only mode
-                    </label>
+            </header>
+            
+            <main class="vault-main">
+                <div class="controls-bar">
+                    <div class="search-box">
+                        <i class="fa-solid fa-search"></i>
+                        <input type="text" id="search-input" placeholder="Search credentials...">
+                    </div>
+                    <button id="add-entry-btn" class="btn primary-btn"><i class="fa-solid fa-plus"></i> Add Entry</button>
+                    <button id="generate-btn" class="btn secondary-btn"><i class="fa-solid fa-wand-magic-sparkles"></i> Generator</button>
                 </div>
-                <button type="submit" id="unlock-submit-btn" class="btn btn-primary">Unlock</button>
-            </form>
-            <div id="unlock-message" class="message" role="alert"></div>
-        </section>
 
-        <!-- ═══════════════════════════════════════════════════════════ -->
-        <!-- Section 3: Dashboard                                       -->
-        <!-- ═══════════════════════════════════════════════════════════ -->
-        <section id="dashboard-section" class="panel hidden">
-            <div class="dashboard-header">
-                <h2>Vault Dashboard</h2>
-                <button id="lock-btn" class="btn btn-danger">🔒 Lock Vault</button>
-            </div>
+                <div id="entries-grid" class="entries-grid">
+                    <!-- Cards injected via JS -->
+                </div>
+            </main>
+        </div>
 
-            <!-- Search -->
-            <div class="search-bar">
-                <input type="text" id="search-input" placeholder="Search credentials...">
-                <button id="search-btn" class="btn btn-secondary">Search</button>
-            </div>
-
-            <!-- Credential List -->
-            <div id="entries-container">
-                <table id="entries-table">
-                    <thead>
-                        <tr>
-                            <th>Site</th>
-                            <th>Username</th>
-                            <th>Password</th>
-                            <th>Last Rotated</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="entries-tbody">
-                        <!-- Entries rendered by JS -->
-                    </tbody>
-                </table>
-                <p id="no-entries-msg" class="hidden">No credentials stored yet.</p>
-            </div>
-
-            <!-- Add Credential -->
-            <div class="add-credential-section">
-                <h3>Add Credential</h3>
-                <form id="add-entry-form">
-                    <div class="form-row">
-                        <input type="text" id="add-site" required placeholder="Site (e.g. github.com)">
-                        <input type="text" id="add-username" required placeholder="Username">
-                        <input type="password" id="add-password" required placeholder="Password">
-                        <button type="submit" class="btn btn-primary">Add</button>
+        <!-- Add/Edit Entry Modal -->
+        <div id="entry-modal" class="modal hidden">
+            <div class="modal-content glass-card">
+                <h2 id="modal-title">Add Entry</h2>
+                <form id="entry-form">
+                    <input type="hidden" id="entry-id">
+                    <div class="input-group">
+                        <label>Site / Application</label>
+                        <input type="text" id="entry-site" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Username / Email</label>
+                        <input type="text" id="entry-username" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Password</label>
+                        <div class="password-input-wrapper">
+                            <input type="password" id="entry-password" required>
+                            <button type="button" class="icon-btn" id="toggle-entry-pwd"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" id="close-modal-btn" class="btn text-btn">Cancel</button>
+                        <button type="submit" class="btn primary-btn">Save</button>
                     </div>
                 </form>
             </div>
-
-            <!-- Password Tools -->
-            <div class="password-tools">
-                <h3>Password Tools</h3>
-                <div class="tool-row">
-                    <button id="generate-password-btn" class="btn btn-secondary">Generate Password</button>
-                    <input type="text" id="generated-password-output" readonly placeholder="Generated password appears here...">
+        </div>
+        
+        <!-- Generator Modal -->
+        <div id="generator-modal" class="modal hidden">
+            <div class="modal-content glass-card">
+                <h2>Password Generator</h2>
+                <div class="generator-options">
+                    <div class="input-group">
+                        <label>Length: <span id="length-val">16</span></label>
+                        <input type="range" id="gen-length" min="8" max="64" value="16">
+                    </div>
+                    <label><input type="checkbox" id="gen-upper" checked> Uppercase</label>
+                    <label><input type="checkbox" id="gen-lower" checked> Lowercase</label>
+                    <label><input type="checkbox" id="gen-digits" checked> Digits</label>
+                    <label><input type="checkbox" id="gen-symbols" checked> Symbols</label>
+                    <button id="do-generate-btn" class="btn primary-btn">Generate</button>
+                    <div class="generated-result">
+                        <input type="text" id="gen-result" readonly placeholder="Click generate...">
+                        <button id="copy-gen-btn" class="icon-btn"><i class="fa-solid fa-copy"></i></button>
+                    </div>
                 </div>
-                <div class="tool-row">
-                    <input type="password" id="strength-check-input" placeholder="Check password strength...">
-                    <button id="check-strength-btn" class="btn btn-secondary">Check</button>
-                    <span id="strength-result"></span>
+                <div class="modal-actions">
+                    <button type="button" id="close-gen-btn" class="btn text-btn">Close</button>
                 </div>
             </div>
-
-            <div id="dashboard-message" class="message" role="alert"></div>
-        </section>
-
-    </main>
-
-    <footer>
-        <p>The Vault &mdash; Local Security Project</p>
-    </footer>
-
+        </div>
+    </div>
     <script src="app.js"></script>
 </body>
 </html>

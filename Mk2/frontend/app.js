@@ -18,11 +18,11 @@ async function init() {
     setInterval(checkStatus, 2000);
 }
 
-let vaultMeta = {}; // vault_id -> { vault_name, hardware_gate_required }
+let vaultMeta = {};
 
 async function loadVaultsList(username = '') {
     const select = document.getElementById('unlock-vault-id');
-    
+
     if (!username) {
         select.innerHTML = '<option value="" disabled selected>Enter username to search vaults</option>';
         select.disabled = true;
@@ -34,7 +34,7 @@ async function loadVaultsList(username = '') {
     try {
         const res = await fetch(`${API_BASE}/vaults?username=${encodeURIComponent(username)}`);
         const data = await res.json();
-        
+
         vaultMeta = {};
         if (data.vaults && data.vaults.length > 0) {
             select.innerHTML = '<option value="" disabled selected>Select a Vault</option>';
@@ -72,19 +72,28 @@ function updateHardwareState(vaultId) {
     const unlockBtn = document.getElementById('unlock-btn');
 
     if (meta && meta.hardware_gate_required) {
-        // Hardware vault: hide passphrase until keypad PIN is entered
         hwWaiting.classList.remove('hidden');
         hwReady.classList.add('hidden');
         passphraseGroup.classList.add('hidden');
         passphraseInput.required = false;
         unlockBtn.classList.add('hidden');
+        setHardwareTarget(vaultId);
     } else {
-        // Software-only vault: show passphrase immediately
         hwWaiting.classList.add('hidden');
         hwReady.classList.add('hidden');
         passphraseGroup.classList.remove('hidden');
         passphraseInput.required = true;
         unlockBtn.classList.remove('hidden');
+        setHardwareTarget(null);
+    }
+}
+
+async function setHardwareTarget(vaultId) {
+    try {
+        const query = vaultId != null ? `?vault_id=${vaultId}` : '';
+        await fetch(`${API_BASE}/hardware/target${query}`, { method: 'PUT' });
+    } catch (err) {
+        console.error('Failed to set hardware target', err);
     }
 }
 
@@ -101,7 +110,7 @@ async function checkStatus() {
         const query = vaultIdCache ? `?vault_id=${vaultIdCache}` : '';
         const res = await fetch(`${API_BASE}/status${query}`);
         const data = await res.json();
-        
+
         if (data.is_locked !== isLocked) {
             isLocked = data.is_locked;
             if (isLocked) {
@@ -112,7 +121,6 @@ async function checkStatus() {
             }
         }
 
-        // Hardware indicator in vault view
         if (data.hardware_gate_required) {
             hwStatus.classList.add('active');
             hwStatus.title = "Hardware Keypad Required";
@@ -121,11 +129,17 @@ async function checkStatus() {
             hwStatus.title = "Hardware Keypad Optional";
         }
 
-        // Detect passphrase window opening (hardware PIN was entered on keypad)
         if (data.passphrase_window_active && isLocked) {
             showPassphraseReady();
         }
-        
+        if (isLocked && vaultIdCache && vaultMeta[vaultIdCache] && vaultMeta[vaultIdCache].hardware_gate_required) {
+            const authActive = !authView.classList.contains('hidden');
+            const unlockActive = !unlockSection.classList.contains('hidden');
+            if (authActive && unlockActive && data.hardware_target_id !== vaultIdCache) {
+                setHardwareTarget(vaultIdCache);
+            }
+        }
+
     } catch (err) {
         console.error("Failed to fetch status", err);
     }
@@ -191,9 +205,7 @@ function setupEventListeners() {
         updateHardwareState(vaultIdCache);
     });
 
-    // --- Delete Vault flow (only available when logged in) ---
     document.getElementById('delete-vault-btn').addEventListener('click', () => {
-        // Use the currently active (unlocked) vault
         if (!vaultIdCache) return;
 
         pendingDeleteVaultId = vaultIdCache;
@@ -220,7 +232,6 @@ function setupEventListeners() {
             try { data = JSON.parse(text); } catch { throw new Error(text || 'Server error'); }
             if (!res.ok) throw new Error(data.detail || 'Delete failed');
 
-            // Vault is gone — force back to auth view
             isLocked = true;
             vaultIdCache = 1;
             showAuthView();
@@ -241,14 +252,12 @@ function setupEventListeners() {
         e.preventDefault();
         const passphrase = document.getElementById('unlock-passphrase').value;
         const vault_id = parseInt(document.getElementById('unlock-vault-id').value);
-        if (!vault_id) { showError('Please select a vault.'); return; }
-        vaultIdCache = vault_id;
 
+        if (!vault_id) { showError('Please select a vault.'); return; }
+
+        vaultIdCache = vault_id;
         const meta = vaultMeta[vault_id];
         const isHardware = meta && meta.hardware_gate_required;
-
-        // Hardware vaults use /unlock/passphrase (PIN was entered on the physical keypad)
-        // Software vaults use /unlock/software
         const endpoint = isHardware ? '/unlock/passphrase' : '/unlock/software';
 
         try {
@@ -260,6 +269,14 @@ function setupEventListeners() {
             const text = await res.text();
             let data;
             try { data = JSON.parse(text); } catch { throw new Error(text || 'Server error'); }
+
+            if (res.status === 403 && isHardware) {
+                showError(data.detail || 'Too many incorrect attempts. Re-enter PIN on keypad.');
+                updateHardwareState(vault_id);
+                document.getElementById('unlock-passphrase').value = '';
+                return;
+            }
+
             if (!res.ok) throw new Error(data.detail || 'Unlock failed.');
 
             await checkStatus();
@@ -271,11 +288,19 @@ function setupEventListeners() {
     document.getElementById('init-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const hwRequired = document.getElementById('init-hw-req').checked;
+        const passphrase = document.getElementById('init-passphrase').value;
+        const verifyPassphrase = document.getElementById('init-verify-passphrase').value;
+
+        if (passphrase !== verifyPassphrase) {
+            showError('Passwords do not match.');
+            return;
+        }
+
         const payload = {
             username: document.getElementById('init-username').value,
-            display_name: document.getElementById('init-display').value,
+            display_name: document.getElementById('init-username').value, // Use username as display_name for now
             vault_name: document.getElementById('init-vault').value,
-            passphrase: document.getElementById('init-passphrase').value,
+            passphrase: passphrase,
             keypad_pin: document.getElementById('init-pin').value || null,
             hardware_gate_required: hwRequired,
             software_only_enabled: !hwRequired
@@ -290,33 +315,29 @@ function setupEventListeners() {
 
             const text = await res.text();
             let data;
-            try { data = JSON.parse(text); } catch { throw new Error(text || 'Server error — check backend logs'); }
+
+            try { data = JSON.parse(text); } catch { throw new Error(text || 'Server error'); }
             if (!res.ok) throw new Error(data.detail || 'Initialization failed');
-            
-            // Parse the vault ID from the success message
+
             const vaultIdMatch = data.message.match(/Vault (\d+)/);
-            if(vaultIdMatch) vaultIdCache = parseInt(vaultIdMatch[1]);
+            if (vaultIdMatch) vaultIdCache = parseInt(vaultIdMatch[1]);
 
             if (hwRequired) {
-                // Hardware vault: can't auto-unlock, send user to the unlock screen
                 showError('');
                 initSection.classList.add('hidden');
                 unlockSection.classList.remove('hidden');
-                
+
                 const uInput = document.getElementById('unlock-username');
                 uInput.value = payload.username;
                 await loadVaultsList(payload.username);
-                
-                // Auto-select the newly created vault
+
                 document.getElementById('unlock-vault-id').value = vaultIdCache;
                 updateHardwareState(vaultIdCache);
                 authError.textContent = '';
-                // Show a temporary success message
                 authError.style.color = '#10b981';
                 authError.textContent = 'Vault created! Enter your PIN on the keypad to unlock.';
                 setTimeout(() => { authError.textContent = ''; authError.style.color = ''; }, 5000);
             } else {
-                // Software vault: auto-unlock immediately
                 const unlockRes = await fetch(`${API_BASE}/unlock/software`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -335,15 +356,31 @@ function setupEventListeners() {
 
     document.getElementById('lock-btn').addEventListener('click', async () => {
         await fetch(`${API_BASE}/lock`, { method: 'POST' });
+        await setHardwareTarget(null);
         await checkStatus();
     });
 
-    document.getElementById('search-input').addEventListener('input', (e) => {
-        const q = e.target.value.toLowerCase();
-        renderEntries(currentEntries.filter(entry => 
-            entry.site.toLowerCase().includes(q) || entry.username.toLowerCase().includes(q)
-        ));
-    });
+    const searchInput = document.getElementById('search-input');
+    const searchFilter = document.getElementById('search-filter');
+
+    const handleSearch = () => {
+        const q = searchInput.value.toLowerCase();
+        const filter = searchFilter.value;
+        renderEntries(currentEntries.filter(entry => {
+            if (filter === 'all') {
+                return entry.site.toLowerCase().includes(q) || entry.username.toLowerCase().includes(q);
+            } else if (filter === 'site') {
+                return entry.site.toLowerCase().includes(q);
+            } else if (filter === 'username') {
+                return entry.username.toLowerCase().includes(q);
+            }
+            return true;
+        }));
+    };
+
+    searchInput.addEventListener('input', handleSearch);
+    searchFilter.addEventListener('change', handleSearch);
+
 
     document.getElementById('add-entry-btn').addEventListener('click', () => {
         document.getElementById('entry-form').reset();
@@ -356,17 +393,6 @@ function setupEventListeners() {
         document.getElementById('entry-modal').classList.add('hidden');
     });
 
-    document.getElementById('toggle-entry-pwd').addEventListener('click', () => {
-        const input = document.getElementById('entry-password');
-        const icon = document.querySelector('#toggle-entry-pwd i');
-        if (input.type === 'password') {
-            input.type = 'text';
-            icon.classList.replace('fa-eye', 'fa-eye-slash');
-        } else {
-            input.type = 'password';
-            icon.classList.replace('fa-eye-slash', 'fa-eye');
-        }
-    });
 
     document.getElementById('entry-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -392,7 +418,7 @@ function setupEventListeners() {
             });
 
             if (!res.ok) throw new Error('Failed to save entry');
-            
+
             document.getElementById('entry-modal').classList.add('hidden');
             loadEntries();
         } catch (err) {
@@ -403,7 +429,7 @@ function setupEventListeners() {
     document.getElementById('generate-btn').addEventListener('click', () => {
         document.getElementById('generator-modal').classList.remove('hidden');
     });
-    
+
     document.getElementById('close-gen-btn').addEventListener('click', () => {
         document.getElementById('generator-modal').classList.add('hidden');
     });
@@ -443,6 +469,76 @@ function setupEventListeners() {
             setTimeout(() => icon.classList.replace('fa-check', 'fa-copy'), 1500);
         }
     });
+
+    const hwInfoBtn = document.getElementById('hw-info-btn');
+    if (hwInfoBtn) {
+        hwInfoBtn.addEventListener('click', () => {
+            document.getElementById('hw-info-modal').classList.remove('hidden');
+        });
+    }
+
+    const closeHwInfoBtn = document.getElementById('close-hw-info-btn');
+    if (closeHwInfoBtn) {
+        closeHwInfoBtn.addEventListener('click', () => {
+            document.getElementById('hw-info-modal').classList.add('hidden');
+        });
+    }
+
+    document.querySelectorAll('.toggle-pwd').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-target');
+            const input = document.getElementById(targetId);
+            const icon = btn.querySelector('i');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.replace('fa-eye', 'fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.replace('fa-eye-slash', 'fa-eye');
+            }
+        });
+    });
+
+    // Password Strength Meter Logic
+    const initPassInput = document.getElementById('init-passphrase');
+    const strengthMeter = document.getElementById('password-strength-meter');
+    const strengthBar = strengthMeter.querySelector('.strength-bar');
+    const strengthLabel = strengthMeter.querySelector('.strength-label');
+
+    const entryPassInput = document.getElementById('entry-password');
+    const entryStrengthMeter = document.getElementById('entry-password-strength-meter');
+    const entryStrengthBar = entryStrengthMeter.querySelector('.strength-bar');
+    const entryStrengthLabel = entryStrengthMeter.querySelector('.strength-label');
+
+    let strengthTimeout;
+
+    const checkStrength = async (password, bar, label, meter) => {
+        if (!password) {
+            meter.classList.add('hidden');
+            return;
+        }
+        meter.classList.remove('hidden');
+
+        clearTimeout(strengthTimeout);
+        strengthTimeout = setTimeout(async () => {
+            try {
+                const res = await fetch(`${API_BASE}/password/check`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await res.json();
+                bar.className = `strength-bar score-${data.score}`;
+                label.className = `strength-label score-${data.score}`;
+                label.textContent = data.label;
+            } catch (err) {
+                console.error('Strength check failed', err);
+            }
+        }, 300);
+    };
+
+    initPassInput.addEventListener('input', () => checkStrength(initPassInput.value, strengthBar, strengthLabel, strengthMeter));
+    entryPassInput.addEventListener('input', () => checkStrength(entryPassInput.value, entryStrengthBar, entryStrengthLabel, entryStrengthMeter));
 }
 
 async function loadEntries() {
@@ -497,15 +593,15 @@ function renderEntries(entries) {
 
         card.querySelector('.edit-btn').addEventListener('click', () => editEntry(entry));
         card.querySelector('.delete-btn').addEventListener('click', () => deleteEntry(entry.entry_id));
-        
-        card.querySelector('.copy-user').addEventListener('click', function() {
+
+        card.querySelector('.copy-user').addEventListener('click', function () {
             navigator.clipboard.writeText(entry.username);
             const icon = this.querySelector('i');
             icon.classList.replace('fa-copy', 'fa-check');
             setTimeout(() => icon.classList.replace('fa-check', 'fa-copy'), 1500);
         });
-        
-        card.querySelector('.copy-pwd').addEventListener('click', function() {
+
+        card.querySelector('.copy-pwd').addEventListener('click', function () {
             navigator.clipboard.writeText(entry.password);
             const icon = this.querySelector('i');
             icon.classList.replace('fa-copy', 'fa-check');
@@ -538,11 +634,11 @@ async function deleteEntry(id) {
 
 function escapeHtml(unsafe) {
     return (unsafe || '').toString()
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 init();

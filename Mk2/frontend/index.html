@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
+
 <body>
     <div id="app">
         <!-- Auth View -->
@@ -17,13 +19,14 @@
                     <i class="fa-solid fa-shield-halved"></i>
                     <h1>The Vault</h1>
                 </div>
-                
+
                 <div id="unlock-section">
-                    <p class="subtitle">Secure Credential Management</p>
+                    <p class="subtitle">Secure Credential Management System</p>
                     <form id="unlock-form">
                         <div class="input-group">
                             <i class="fa-solid fa-user"></i>
-                            <input type="text" id="unlock-username" placeholder="Username to find vaults" autocomplete="off" required>
+                            <input type="text" id="unlock-username" placeholder="Username to find vaults"
+                                autocomplete="off" required>
                         </div>
                         <div class="input-group">
                             <i class="fa-solid fa-box"></i>
@@ -37,28 +40,64 @@
                             <span class="hw-waiting-sub">Waiting for keypad input…</span>
                         </div>
                         <div id="hw-ready" class="hw-ready hidden">
-                            <i class="fa-solid fa-circle-check"></i> PIN accepted — enter your passphrase
+                            <i class="fa-solid fa-circle-check"></i> PIN accepted — enter your password
                         </div>
                         <div class="input-group" id="unlock-passphrase-group">
                             <i class="fa-solid fa-key"></i>
-                            <input type="password" id="unlock-passphrase" placeholder="Enter Passphrase" required>
+                            <div class="password-input-wrapper">
+                                <input type="password" id="unlock-passphrase" placeholder="Enter Password" required>
+                                <button type="button" class="icon-btn toggle-pwd" data-target="unlock-passphrase">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
                         </div>
                         <button type="submit" id="unlock-btn" class="btn primary-btn">Unlock Vault</button>
                     </form>
-                    <p class="switch-mode">New user? <a href="#" id="show-init">Initialize Vault</a></p>
+                    <p class="switch-mode">New user? <a href="#" id="show-init">Create a new Vault!</a></p>
                 </div>
 
                 <div id="init-section" class="hidden">
-                    <p class="subtitle">Initialize New Vault</p>
+                    <p class="subtitle">Create New Vault</p>
                     <form id="init-form">
-                        <div class="input-group"><i class="fa-solid fa-user"></i><input type="text" id="init-username" placeholder="Username / Display Name" required></div>
-                        <div class="input-group"><i class="fa-solid fa-id-card"></i><input type="text" id="init-display" placeholder="Real Name" required></div>
-                        <div class="input-group"><i class="fa-solid fa-box"></i><input type="text" id="init-vault" placeholder="Vault Name" required></div>
-                        <div class="input-group"><i class="fa-solid fa-key"></i><input type="password" id="init-passphrase" placeholder="Master Passphrase" required></div>
-                        <div class="checkbox-group">
-                            <label><input type="checkbox" id="init-hw-req"> Require Hardware Keypad</label>
+                        <div class="input-group">
+                            <i class="fa-solid fa-user"></i>
+                            <input type="text" id="init-username" placeholder="Username / Display Name" required>
                         </div>
-                        <div class="input-group hidden" id="pin-input-group"><i class="fa-solid fa-calculator"></i><input type="text" id="init-pin" placeholder="Hardware PIN (4 digits)"></div>
+                        <div class="input-group">
+                            <i class="fa-solid fa-box"></i>
+                            <input type="text" id="init-vault" placeholder="Vault Name" required>
+                        </div>
+                        <div class="input-group">
+                            <i class="fa-solid fa-key"></i>
+                            <div class="password-input-wrapper">
+                                <input type="password" id="init-passphrase" placeholder="Master Password" required>
+                                <button type="button" class="icon-btn toggle-pwd" data-target="init-passphrase">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
+                            <div id="password-strength-meter" class="strength-meter hidden">
+                                <div class="strength-bar"></div>
+                                <span class="strength-label"></span>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <i class="fa-solid fa-shield-check"></i>
+                            <div class="password-input-wrapper">
+                                <input type="password" id="init-verify-passphrase" placeholder="Verify Password"
+                                    required>
+                                <button type="button" class="icon-btn toggle-pwd" data-target="init-verify-passphrase">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="checkbox-group hw-checkbox-group">
+                            <label><input type="checkbox" id="init-hw-req"> Require Hardware Keypad</label>
+                            <i class="fa-solid fa-circle-question info-icon" id="hw-info-btn" title="Learn More"></i>
+                        </div>
+                        <div class="input-group hidden" id="pin-input-group">
+                            <i class="fa-solid fa-calculator"></i>
+                            <input type="text" id="init-pin" placeholder="Hardware PIN (6 digits)">
+                        </div>
                         <button type="submit" class="btn primary-btn">Create Vault</button>
                     </form>
                     <p class="switch-mode">Already have a vault? <a href="#" id="show-unlock">Unlock</a></p>
@@ -78,23 +117,30 @@
                     <span id="hardware-status" class="hardware-status" title="Hardware Connection">
                         <i class="fa-solid fa-microchip"></i>
                     </span>
-                    <button id="delete-vault-btn" class="btn danger-outline-btn" title="Delete this vault"><i class="fa-solid fa-trash"></i> Delete Vault</button>
+                    <button id="delete-vault-btn" class="btn danger-outline-btn" title="Delete this vault"><i
+                            class="fa-solid fa-trash"></i> Delete Vault</button>
                     <button id="lock-btn" class="btn secondary-btn"><i class="fa-solid fa-lock"></i> Lock</button>
                 </div>
             </header>
-            
+
             <main class="vault-main">
                 <div class="controls-bar">
                     <div class="search-box">
                         <i class="fa-solid fa-search"></i>
                         <input type="text" id="search-input" placeholder="Search credentials...">
                     </div>
-                    <button id="add-entry-btn" class="btn primary-btn"><i class="fa-solid fa-plus"></i> Add Entry</button>
-                    <button id="generate-btn" class="btn secondary-btn"><i class="fa-solid fa-wand-magic-sparkles"></i> Generator</button>
+                    <select id="search-filter" class="search-filter">
+                        <option value="all">All Fields</option>
+                        <option value="site">Site Name</option>
+                        <option value="username">Username</option>
+                    </select>
+                    <button id="add-entry-btn" class="btn primary-btn"><i class="fa-solid fa-plus"></i> Add
+                        Entry</button>
+                    <button id="generate-btn" class="btn secondary-btn"><i class="fa-solid fa-wand-magic-sparkles"></i>
+                        Generator</button>
                 </div>
 
                 <div id="entries-grid" class="entries-grid">
-                    <!-- Cards injected via JS -->
                 </div>
             </main>
         </div>
@@ -117,7 +163,13 @@
                         <label>Password</label>
                         <div class="password-input-wrapper">
                             <input type="password" id="entry-password" required>
-                            <button type="button" class="icon-btn" id="toggle-entry-pwd"><i class="fa-solid fa-eye"></i></button>
+                            <button type="button" class="icon-btn toggle-pwd" data-target="entry-password">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                        </div>
+                        <div id="entry-password-strength-meter" class="strength-meter hidden">
+                            <div class="strength-bar"></div>
+                            <span class="strength-label"></span>
                         </div>
                     </div>
                     <div class="modal-actions">
@@ -127,7 +179,7 @@
                 </form>
             </div>
         </div>
-        
+
         <!-- Generator Modal -->
         <div id="generator-modal" class="modal hidden">
             <div class="modal-content glass-card">
@@ -152,20 +204,43 @@
                 </div>
             </div>
         </div>
-        <!-- Delete Vault Confirmation Modal -->
+        <!-- Delete Vault Modal -->
         <div id="delete-vault-modal" class="modal hidden">
             <div class="modal-content glass-card danger-modal">
                 <div class="danger-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
                 <h2>Delete Vault</h2>
-                <p class="danger-text">This will <strong>permanently destroy</strong> this vault and all passwords stored inside it. This action cannot be undone.</p>
+                <p class="danger-text">This will <strong>permanently destroy</strong> this vault and all passwords
+                    stored inside it. This action cannot be undone.</p>
                 <p class="danger-vault-name" id="delete-vault-name"></p>
                 <div class="modal-actions">
                     <button type="button" id="cancel-delete-btn" class="btn secondary-btn">Cancel</button>
-                    <button type="button" id="confirm-delete-btn" class="btn danger-btn"><i class="fa-solid fa-trash"></i> Delete Forever</button>
+                    <button type="button" id="confirm-delete-btn" class="btn danger-btn"><i
+                            class="fa-solid fa-trash"></i> Delete Forever</button>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <!-- Hardware Info Modal -->
+        <div id="hw-info-modal" class="modal hidden">
+            <div class="modal-content glass-card">
+                <h2>Hardware Mode</h2>
+                <p style="margin-bottom: 1rem; color: var(--text-muted); line-height: 1.5;">
+                    Hardware Mode requires a physical Arduino-based keypad to unlock your vault. This adds a powerful layer of two-factor authentication that is fully disconnected from the internet.
+                </p>
+                <p style="margin-bottom: 1.5rem; color: var(--text-muted); line-height: 1.5;">
+                    If you enable this, you must enter a 6-digit PIN on your physical keypad before your Master Password will be accepted.
+                </p>
+                <div class="modal-actions" style="justify-content: space-between; align-items: center;">
+                    <a href="https://github.com/Kaiden-Bell/Password-Manager#hardware-keypad" target="_blank" rel="noopener noreferrer" class="btn secondary-btn" style="width: auto; padding: 0.6rem 1rem;">
+                        <i class="fa-solid fa-microchip"></i> View Circuit Demo
+                    </a>
+                    <button type="button" id="close-hw-info-btn" class="btn text-btn">Close</button>
                 </div>
             </div>
         </div>
     </div>
     <script src="app.js"></script>
 </body>
+
 </html>

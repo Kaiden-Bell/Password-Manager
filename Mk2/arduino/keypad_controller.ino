@@ -11,8 +11,16 @@
  * Behavior:
  *   - Reads 6-digit PIN from keypad.
  *   - Sends "PIN_ATTEMPT:XXXXXX" to Python backend over serial.
- *   - Waits for response: GRANTED, DENIED, PENDING, or LOCKED.
+ *   - Waits for response: PIN_OK, GRANTED, DENIED, PASS_FAIL, PENDING, or LOCKED.
  *   - Controls LEDs based on response.
+ *
+ * Response Protocol:
+ *   "PIN_OK"    → Flash green once (~500ms), then switch to yellow (pending passphrase).
+ *   "GRANTED"   → Flash green for 3 seconds, then turn off all LEDs.
+ *   "DENIED"    → Flash red for 2 seconds, then reset.
+ *   "PASS_FAIL" → Flash red for 1 second, stay yellow (still in passphrase window).
+ *   "PENDING"   → Turn on yellow LED (passphrase window open).
+ *   "LOCKED"    → Reset all LEDs.
  *
  * NOTE: The Arduino does NO cryptography or database logic.
  *       It is a simple I/O device controlled by the Python backend.
@@ -167,17 +175,32 @@ void handleKeyPress(char key) {
 void handleResponse(String response) {
     /*
      * Expected responses from Python backend:
-     *   "GRANTED"  → Turn on GREEN LED, turn off others.
-     *   "DENIED"   → Flash RED LED for 2 seconds, then reset.
-     *   "PENDING"  → Turn on YELLOW LED (passphrase window open).
-     *   "LOCKED"   → Reset all LEDs.
+     *   "PIN_OK"    → PIN accepted: flash green briefly, then go to yellow (pending passphrase).
+     *   "GRANTED"   → Passphrase correct: flash green for 3 seconds, then turn off all LEDs.
+     *   "DENIED"    → PIN wrong: flash red for 2 seconds, then reset.
+     *   "PASS_FAIL" → Passphrase wrong: flash red for 1 second, stay yellow.
+     *   "PENDING"   → Passphrase window is open: steady yellow.
+     *   "LOCKED"    → Reset all LEDs (vault locked / session ended).
      */
 
-    if (response == "GRANTED") {
-        setGreen();
+    if (response == "PIN_OK") {
+        // PIN accepted — flash green once, then go to pending (yellow)
+        flashGreen(500);
+        setYellow();
+    }
+    else if (response == "GRANTED") {
+        // Passphrase correct — flash green for 3 seconds, then turn off everything
+        flashGreen(3000);
+        resetLEDs();
     }
     else if (response == "DENIED") {
+        // PIN wrong — flash red for 2 seconds, then reset
         flashRed(2000);
+    }
+    else if (response == "PASS_FAIL") {
+        // Passphrase wrong — flash red briefly, then back to yellow
+        flashRed(1000);
+        setYellow();
     }
     else if (response == "PENDING") {
         setYellow();
@@ -211,6 +234,12 @@ void setYellow() {
 void setRed() {
     resetLEDs();
     digitalWrite(RED_LED, HIGH);
+}
+
+void flashGreen(unsigned long duration) {
+    setGreen();
+    delay(duration);
+    resetLEDs();
 }
 
 void flashRed(unsigned long duration) {

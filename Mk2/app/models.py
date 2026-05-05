@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 class InitRequest(BaseModel):
     """POST /api/init — Initialize a new vault."""
     username: str
-    display_name: str
     vault_name: str
     passphrase: str
     keypad_pin: str | None = None
@@ -73,6 +72,8 @@ class StatusResponse(BaseModel):
     software_only_enabled: bool = True
     passphrase_window_active: bool = False
     passphrase_window_seconds_remaining: float = 0.0
+    passphrase_attempts_remaining: int | None = None
+    hardware_target_id: int | None = None
 
 class EntryResponse(BaseModel):
     """Single credential entry."""

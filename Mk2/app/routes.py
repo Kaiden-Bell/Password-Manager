@@ -54,8 +54,7 @@ async def list_vaults(username: str | None = None):
 @router.delete("/vaults/{vault_id}", response_model=MessageResponse)
 async def delete_vault(vault_id: int):
     """
-        Desc: Permanently delete a vault and all of its data.
-              Requires an active unlocked session for the target vault.
+        Desc: Permanently delete a vault and all of its data. Requires an active unlocked session for the target vault.
         Arguments: vault_id
         Returns: MessageResponse
     """
@@ -79,13 +78,12 @@ async def delete_vault(vault_id: int):
 async def init_vault(request: InitRequest):
     """
         Desc: Initialize a new vault: user, policy, auth credentials, encrypted data.
-        Arguments: username, display_name, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
+        Arguments: username, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
         Returns: MessageResponse
     """
     try:
         result = auth.initialize_vault(
             username=request.username,
-            display_name=request.display_name,
             vault_name=request.vault_name,
             passphrase=request.passphrase,
             keypad_pin=request.keypad_pin,
@@ -103,12 +101,38 @@ async def unlock_passphrase(request: PassphraseUnlockRequest):
         Arguments: vault_id, passphrase
         Returns: MessageResponse
     """
+    if hardware.is_passphrase_locked_out(request.vault_id):
+        session.close_passphrase_window(request.vault_id)
+        hardware.send_locked()
+        hardware.reset_passphrase_fails(request.vault_id)
+        raise HTTPException(
+            status_code=403,
+            detail="Too many incorrect passphrase attempts. Please re-enter your PIN on the keypad."
+        )
+
     try:
         auth.unlock_with_passphrase(request.vault_id, request.passphrase)
+        hardware.reset_passphrase_fails(request.vault_id)
         hardware.send_granted()
         return MessageResponse(message=f"Vault {request.vault_id} unlocked successfully")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        fail_count = hardware.increment_passphrase_fail(request.vault_id)
+        remaining = hardware.MAX_PASSPHRASE_ATTEMPTS - fail_count
+
+        if hardware.is_passphrase_locked_out(request.vault_id):
+            session.close_passphrase_window(request.vault_id)
+            hardware.send_locked()
+            hardware.reset_passphrase_fails(request.vault_id)
+            raise HTTPException(
+                status_code=403,
+                detail="Too many incorrect passphrase attempts. Please re-enter your PIN on the keypad."
+            )
+
+        hardware.send_passphrase_fail()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid passphrase. {remaining} attempt(s) remaining before PIN re-entry is required."
+        )
 
 
 @router.post("/unlock/software", response_model=MessageResponse)
@@ -139,9 +163,28 @@ async def lock_vault():
     user_id = session_data.get('active_user_id') if session_data else None
 
     session.lock_session(vault_id)
+    hardware.reset_passphrase_fails(vault_id)
+    hardware.set_target_vault(None)
     hardware.send_locked()
     database.write_access_log(vault_id, user_id, "lock", None, True, "Vault locked")
     return MessageResponse(message=f"Vault {vault_id} locked successfully")
+
+# -------------------------
+# Hardware Vault Targeting |
+# -------------------------
+
+@router.put("/hardware/target", response_model=MessageResponse)
+async def set_hardware_target(vault_id: int | None = None):
+    """
+        Desc: Tell the backend which vault the user has selected so the Arduino. PIN validation is tied to that specific vault.
+        Arguments: vault_id (query param, optional — None clears the target)
+        Returns: MessageResponse
+    """
+    hardware.set_target_vault(vault_id)
+    if vault_id is not None:
+        return MessageResponse(message=f"Hardware target set to vault {vault_id}")
+    else:
+        return MessageResponse(message="Hardware target cleared")
 
 @router.get("/status", response_model=StatusResponse)
 async def get_status(vault_id: int | None = None):
@@ -153,14 +196,27 @@ async def get_status(vault_id: int | None = None):
     active_vault = session.get_active_vault_id()
     if not active_vault:
         window_active = False
+        attempts_remaining = None
         if vault_id:
             window_active = session.is_passphrase_window_active(vault_id)
-        return StatusResponse(is_locked=True, passphrase_window_active=window_active)
+            if window_active:
+                attempts_remaining = hardware.MAX_PASSPHRASE_ATTEMPTS - hardware.get_passphrase_fail_count(vault_id)
+        return StatusResponse(
+            is_locked=True,
+            passphrase_window_active=window_active,
+            passphrase_attempts_remaining=attempts_remaining,
+            hardware_target_id=hardware.get_target_vault(),
+        )
     
     is_locked = not session.is_unlocked(active_vault)
     session_data = session.get_session(active_vault)
     policy = database.load_vault_policy(active_vault) or {}
     
+    pw_window_active = session.is_passphrase_window_active(active_vault)
+    attempts_remaining = None
+    if pw_window_active:
+        attempts_remaining = hardware.MAX_PASSPHRASE_ATTEMPTS - hardware.get_passphrase_fail_count(active_vault)
+
     return StatusResponse(
         is_locked=is_locked,
         vault_id=active_vault,
@@ -168,8 +224,10 @@ async def get_status(vault_id: int | None = None):
         auth_method=session_data['auth_method'] if session_data else None,
         hardware_gate_required=bool(policy.get('hardware_gate_required', False)),
         software_only_enabled=bool(policy.get('software_only_enabled', True)),
-        passphrase_window_active=session.is_passphrase_window_active(active_vault),
-        passphrase_window_seconds_remaining=session.get_passphrase_window_remaining(active_vault)
+        passphrase_window_active=pw_window_active,
+        passphrase_window_seconds_remaining=session.get_passphrase_window_remaining(active_vault),
+        passphrase_attempts_remaining=attempts_remaining,
+        hardware_target_id=hardware.get_target_vault(),
     )
 
 # --------------

@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS access_logs (
 
 def get_connection() -> sqlite3.Connection:
     """
-        Desc: Establish a connection to the SQLite database.
+        Desc: DB Connection
         Arguments: None
         Returns: sqlite3.Connection
     """
@@ -147,26 +147,18 @@ def initialize_database() -> None:
         conn.close()
 
 def _now() -> str:
-    """
-        Desc: Get the current UTC time in ISO 8601 format.
-        Arguments: None
-        Returns: str
-    """
-
-
     return datetime.now(timezone.utc).isoformat()
 
 # -----------
 # User CRUD |
 # -----------
 
-def create_user(username: str, display_name: str) -> int:
+def create_user(username: str) -> int:
     """
         Desc: Create a new user record in the database.
-        Arguments: username, display_name
+        Arguments: username
         Returns: int, the new user's ID
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -175,7 +167,7 @@ def create_user(username: str, display_name: str) -> int:
             INSERT INTO users (username, display_name, created_at, updated_at)
             VALUES (?, ?, ?, ?)
             """,
-            (username, display_name, _now(), _now()),
+            (username, username, _now(), _now()),
         )
         conn.commit()
         return cursor.lastrowid
@@ -188,7 +180,6 @@ def get_user_by_username(username: str) -> dict | None:
         Arguments: username
         Returns: dict or None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -211,7 +202,6 @@ def get_all_vaults() -> list[dict]:
         Arguments: None
         Returns: list[dict]
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -226,7 +216,6 @@ def get_user_vaults(username: str) -> list[dict]:
         Arguments: username
         Returns: list[dict]
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -249,7 +238,6 @@ def create_vault(user_id: int, vault_name: str) -> int:
         Arguments: user_id, vault_name
         Returns: int, the new vault's ID
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -306,7 +294,6 @@ def load_vault(vault_id: int) -> dict | None:
         Arguments: vault_id
         Returns: dict or None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -336,7 +323,6 @@ def create_vault_policy(
         Arguments: vault_id, hardware_gate_required, software_only_enabled, gate_window_seconds
         Returns: int, the new policy's ID
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -368,7 +354,6 @@ def save_auth_credentials(
         Arguments: vault_id, passphrase_salt, wrapped_master_key, wrapped_master_key_nonce, kdf_params
         Returns: int, the new record's ID
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -391,7 +376,6 @@ def load_auth_credentials(vault_id: int) -> dict | None:
         Arguments: vault_id
         Returns: dict or None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -424,7 +408,6 @@ def save_hardware_auth(
         Arguments: vault_id, keypad_pin_hash, keypad_pin_salt
         Returns: int, the new record's ID
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -446,7 +429,6 @@ def load_hardware_auth(vault_id: int) -> dict | None:
         Arguments: vault_id
         Returns: dict or None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -471,7 +453,6 @@ def increment_failed_pin_attempts(vault_id: int) -> None:
         Arguments: vault_id
         Returns: None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -493,7 +474,6 @@ def get_failed_pin_attempts(vault_id: int) -> int:
         Arguments: vault_id
         Returns: int
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -514,7 +494,6 @@ def reset_failed_pin_attempts(vault_id: int) -> None:
         Arguments: vault_id
         Returns: None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -540,7 +519,6 @@ def lock_vault(vault_id: int) -> None:
         Arguments: vault_id
         Returns: None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -562,7 +540,6 @@ def unlock_vault(vault_id: int) -> None:
         Arguments: vault_id
         Returns: None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -588,7 +565,6 @@ def load_vault_policy(vault_id: int) -> dict | None:
         Arguments: vault_id
         Returns: dict or None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -622,7 +598,6 @@ def save_vault_data(
         Arguments: vault_id, encrypted_blob, nonce, algorithm
         Returns: int, the new record's ID
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -644,7 +619,6 @@ def load_vault_data(vault_id: int) -> dict | None:
         Arguments: vault_id
         Returns: dict or None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -673,7 +647,6 @@ def update_vault_data(
         Arguments: vault_id, encrypted_blob, nonce
         Returns: None
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -706,7 +679,6 @@ def write_access_log(
         Arguments: vault_id, user_id, event_type, auth_method, success, details
         Returns: int, the new log record's ID
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -728,7 +700,6 @@ def get_access_logs(vault_id: int | None = None, user_id: int | None = None) -> 
         Arguments: vault_id, user_id
         Returns: list[dict]
     """
-
     conn = get_connection()
     try:
         cursor = conn.cursor()

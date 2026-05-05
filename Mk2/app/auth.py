@@ -21,7 +21,6 @@ from app.config import (
 
 def initialize_vault(
     username: str,
-    display_name: str,
     vault_name: str,
     passphrase: str,
     keypad_pin: str | None = None,
@@ -30,7 +29,7 @@ def initialize_vault(
 ) -> dict:
     """
         Desc: Full vault initialization flow.
-        Arguments: username, display_name, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
+        Arguments: username, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
         Returns: dict, vault id and success status
     """
     kdf_params = {
@@ -46,7 +45,7 @@ def initialize_vault(
         if any(v["vault_name"].lower() == vault_name.lower() for v in existing_vaults):
             raise ValueError(f"A vault named '{vault_name}' already exists for user '{username}'.")
     else:
-        user_id = database.create_user(username, display_name)
+        user_id = database.create_user(username)
 
     vault_id = database.create_vault(user_id, vault_name)
     vault_policy = database.create_vault_policy(vault_id, hardware_gate_required, software_only_enabled) 

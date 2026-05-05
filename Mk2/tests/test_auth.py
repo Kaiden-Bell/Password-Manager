@@ -23,6 +23,7 @@ class TestVaultInitialization:
     @patch("app.auth.crypto")
     @patch("app.auth.vault")
     def test_initialize_creates_vault(self, mock_vault, mock_crypto, mock_db):
+        mock_db.get_user_by_username.return_value = None
         mock_db.create_user.return_value = 1
         mock_db.create_vault.return_value = 42
         mock_crypto.generate_salt.return_value = b"salt"

@@ -3,6 +3,7 @@ const API_BASE = '/api';
 let isLocked = true;
 let currentEntries = [];
 let vaultIdCache = 1;
+let pendingDeleteVaultId = null;
 
 const authView = document.getElementById('auth-view');
 const vaultView = document.getElementById('vault-view');
@@ -12,7 +13,6 @@ const authError = document.getElementById('auth-error');
 const hwStatus = document.getElementById('hardware-status');
 
 async function init() {
-    await loadVaultsList();
     await checkStatus();
     setupEventListeners();
     setInterval(checkStatus, 2000);
@@ -20,14 +20,25 @@ async function init() {
 
 let vaultMeta = {}; // vault_id -> { vault_name, hardware_gate_required }
 
-async function loadVaultsList() {
+async function loadVaultsList(username = '') {
+    const select = document.getElementById('unlock-vault-id');
+    
+    if (!username) {
+        select.innerHTML = '<option value="" disabled selected>Enter username to search vaults</option>';
+        select.disabled = true;
+        vaultMeta = {};
+        updateHardwareState(null);
+        return;
+    }
+
     try {
-        const res = await fetch(`${API_BASE}/vaults`);
+        const res = await fetch(`${API_BASE}/vaults?username=${encodeURIComponent(username)}`);
         const data = await res.json();
-        const select = document.getElementById('unlock-vault-id');
-        select.innerHTML = '<option value="" disabled selected>Select a Vault</option>';
+        
         vaultMeta = {};
         if (data.vaults && data.vaults.length > 0) {
+            select.innerHTML = '<option value="" disabled selected>Select a Vault</option>';
+            select.disabled = false;
             data.vaults.forEach(v => {
                 vaultMeta[v.vault_id] = v;
                 const opt = document.createElement('option');
@@ -37,8 +48,15 @@ async function loadVaultsList() {
             });
             if (data.vaults.length === 1) {
                 select.value = data.vaults[0].vault_id;
+                vaultIdCache = data.vaults[0].vault_id;
                 updateHardwareState(data.vaults[0].vault_id);
+            } else {
+                updateHardwareState(null);
             }
+        } else {
+            select.innerHTML = '<option value="" disabled selected>No vaults found</option>';
+            select.disabled = true;
+            updateHardwareState(null);
         }
     } catch (err) {
         console.error('Failed to load vaults list', err);
@@ -117,7 +135,8 @@ function showAuthView() {
     vaultView.classList.add('hidden');
     authView.classList.remove('hidden');
     document.getElementById('unlock-passphrase').value = '';
-    loadVaultsList();
+    const usernameInput = document.getElementById('unlock-username');
+    if (usernameInput) loadVaultsList(usernameInput.value.trim());
 }
 
 function showVaultView() {
@@ -159,9 +178,63 @@ function setupEventListeners() {
         }
     });
 
+    let searchTimeout;
+    document.getElementById('unlock-username').addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            loadVaultsList(e.target.value.trim());
+        }, 400);
+    });
+
     document.getElementById('unlock-vault-id').addEventListener('change', (e) => {
         vaultIdCache = parseInt(e.target.value);
         updateHardwareState(vaultIdCache);
+    });
+
+    // --- Delete Vault flow (only available when logged in) ---
+    document.getElementById('delete-vault-btn').addEventListener('click', () => {
+        // Use the currently active (unlocked) vault
+        if (!vaultIdCache) return;
+
+        pendingDeleteVaultId = vaultIdCache;
+        const meta = vaultMeta[vaultIdCache];
+        document.getElementById('delete-vault-name').textContent = meta ? meta.vault_name : `Vault #${vaultIdCache}`;
+        document.getElementById('delete-vault-modal').classList.remove('hidden');
+    });
+
+    document.getElementById('cancel-delete-btn').addEventListener('click', () => {
+        pendingDeleteVaultId = null;
+        document.getElementById('delete-vault-modal').classList.add('hidden');
+    });
+
+    document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
+        if (!pendingDeleteVaultId) return;
+        const btn = document.getElementById('confirm-delete-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Deleting…';
+
+        try {
+            const res = await fetch(`${API_BASE}/vaults/${pendingDeleteVaultId}`, { method: 'DELETE' });
+            const text = await res.text();
+            let data;
+            try { data = JSON.parse(text); } catch { throw new Error(text || 'Server error'); }
+            if (!res.ok) throw new Error(data.detail || 'Delete failed');
+
+            // Vault is gone — force back to auth view
+            isLocked = true;
+            vaultIdCache = 1;
+            showAuthView();
+            authError.style.color = '#10b981';
+            authError.textContent = 'Vault deleted successfully.';
+            setTimeout(() => { authError.textContent = ''; authError.style.color = ''; }, 4000);
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            pendingDeleteVaultId = null;
+            document.getElementById('delete-vault-modal').classList.add('hidden');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-trash"></i> Delete Forever';
+        }
     });
 
     document.getElementById('unlock-form').addEventListener('submit', async (e) => {
@@ -229,7 +302,11 @@ function setupEventListeners() {
                 showError('');
                 initSection.classList.add('hidden');
                 unlockSection.classList.remove('hidden');
-                await loadVaultsList();
+                
+                const uInput = document.getElementById('unlock-username');
+                uInput.value = payload.username;
+                await loadVaultsList(payload.username);
+                
                 // Auto-select the newly created vault
                 document.getElementById('unlock-vault-id').value = vaultIdCache;
                 updateHardwareState(vaultIdCache);

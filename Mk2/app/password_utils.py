@@ -12,7 +12,11 @@ def generate_password(
     use_digits: bool = True,
     use_symbols: bool = True,
 ) -> str:
-
+    """
+        Desc: Generate a random secure password.
+        Arguments: length, use_upper, use_lower, use_digits, use_symbols
+        Returns: str, the generated password
+    """
     upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     lower = "abcdefghijklmnopqrstuvwxyz"
     digits = "0123456789"
@@ -37,7 +41,11 @@ def generate_password(
 
 
 def check_password_strength(password: str) -> dict:
-
+    """
+        Desc: Evaluate the strength of a password
+        Arguments: password
+        Returns: dict, score and feedback
+    """
     score = 0
     feedback = []
 
@@ -76,5 +84,4 @@ def check_password_strength(password: str) -> dict:
     }
 
 def current_date_string() -> str:
-
     return date.today().isoformat()

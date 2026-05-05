@@ -1,9 +1,7 @@
 """
 serial_service.py — Raw Arduino serial communication.
 
-Handles the low-level serial port connection to the Arduino.
-Runs a background listener thread that reads messages and dispatches
-them to the hardware module.
+Serial port connection to Arduino. Background listener reads messages and sends messages back to the hardware module.
 """
 
 import threading
@@ -18,7 +16,7 @@ from app.config import SERIAL_PORT, BAUD_RATE
 # Module State |
 # --------------
 
-_serial_connection = None        # serial.Serial instance
+_serial_connection = None
 _listener_thread: threading.Thread | None = None
 _running = False
 
@@ -30,10 +28,8 @@ _running = False
 def connect(port: str = SERIAL_PORT, baud: int = BAUD_RATE) -> bool:
     """
         Desc: Open the serial connection to the Arduino.
-        Args:
-            port: Serial port path (e.g., "/dev/ttyACM0" or "COM3").
-            baud: Baud rate (default 9600).
-        Returns: True if connection was successful.
+        Arguments: port, baud
+        Returns: bool, True if connection was successful
     """
     global _serial_connection
 
@@ -50,6 +46,8 @@ def connect(port: str = SERIAL_PORT, baud: int = BAUD_RATE) -> bool:
 def disconnect() -> None:
     """
         Desc: Close the serial connection and stop the listener thread.
+        Arguments: None
+        Returns: None
     """
     global _serial_connection, _running
 
@@ -88,7 +86,8 @@ def read_message() -> str | None:
 def send_message(message: str) -> None:
     """
         Desc: Send a response message to the Arduino.
-        Args: message: One of "GRANTED", "DENIED", "PENDING", "LOCKED".
+        Arguments: message
+        Returns: None
     """
     if _serial_connection is None or not _serial_connection.is_open:
         print(f"[serial_service] Cannot send '{message}': no connection")
@@ -108,7 +107,8 @@ def send_message(message: str) -> None:
 def start_serial_listener(on_pin_attempt=None) -> None:
     """
         Desc: Start a background thread that continuously reads from the serial port.
-        Args: on_pin_attempt: Callback function that receives a PIN string, called when a valid PIN_ATTEMPT message is parsed.
+        Arguments: on_pin_attempt
+        Returns: None
     """
     global _listener_thread, _running
 
@@ -135,8 +135,8 @@ def start_serial_listener(on_pin_attempt=None) -> None:
 def parse_pin_attempt(message: str) -> str | None:
     """
         Desc: Parse a PIN attempt from an Arduino message.
-        Args: message: Raw message from Arduino.
-        Returns: The 6-digit PIN string, or None if the message doesn't match.
+        Arguments: message
+        Returns: str or None, the 6-digit PIN string
     """
     prefix = "PIN_ATTEMPT:"
     if not message.startswith(prefix): return None

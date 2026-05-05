@@ -29,17 +29,21 @@ from app import auth, vault, session, password_utils, database, hardware
 
 router = APIRouter(prefix="/api")
 
-
 # -------------------------
 # Initialization / Phases |
 # -------------------------
 
 @router.get("/vaults")
-async def list_vaults():
-    """Return all vault names and IDs (public, no session needed)."""
+async def list_vaults(username: str | None = None):
+    """
+        Desc: Return vault names and IDs for a specific user (public, no session needed).
+        Arguments: username
+        Returns: dict, list of vaults
+    """
+    if not username:
+        return {"vaults": []}
     try:
-        vaults = database.list_vaults()
-        # Attach policy info so the frontend knows which unlock flow to use
+        vaults = database.get_user_vaults(username)
         for v in vaults:
             policy = database.load_vault_policy(v["vault_id"])
             v["hardware_gate_required"] = bool(policy.get("hardware_gate_required")) if policy else False
@@ -47,12 +51,36 @@ async def list_vaults():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.delete("/vaults/{vault_id}", response_model=MessageResponse)
+async def delete_vault(vault_id: int):
+    """
+        Desc: Permanently delete a vault and all of its data.
+              Requires an active unlocked session for the target vault.
+        Arguments: vault_id
+        Returns: MessageResponse
+    """
+    active_vault = session.get_active_vault_id()
+    if active_vault is None or active_vault != vault_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You must unlock this vault before you can delete it."
+        )
+
+    try:
+        session.lock_session(vault_id)
+        database.delete_vault(vault_id)
+        return MessageResponse(message=f"Vault {vault_id} deleted successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/init", response_model=MessageResponse)
 async def init_vault(request: InitRequest):
     """
         Desc: Initialize a new vault: user, policy, auth credentials, encrypted data.
-        Args: username, display_name, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
-        Returns: dict, vault id and success status
+        Arguments: username, display_name, vault_name, passphrase, keypad_pin, hardware_gate_required, software_only_enabled
+        Returns: MessageResponse
     """
     try:
         result = auth.initialize_vault(
@@ -65,8 +93,6 @@ async def init_vault(request: InitRequest):
             software_only_enabled=request.software_only_enabled,
         )
         return MessageResponse(message=f"Vault {result['vault_id']} created successfully")
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="A vault with that username already exists. Please choose a different username.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -74,8 +100,8 @@ async def init_vault(request: InitRequest):
 async def unlock_passphrase(request: PassphraseUnlockRequest):
     """
         Desc: Hardware-gated passphrase unlock.
-        Args: vault_id, passphrase, auth_method
-        Returns: dict, session data and vault id
+        Arguments: vault_id, passphrase
+        Returns: MessageResponse
     """
     try:
         auth.unlock_with_passphrase(request.vault_id, request.passphrase)
@@ -89,8 +115,8 @@ async def unlock_passphrase(request: PassphraseUnlockRequest):
 async def unlock_software(request: SoftwareUnlockRequest):
     """
         Desc: Software-only passphrase unlock.
-        Args: vault_id, passphrase, auth_method
-        Returns: dict, session data and vault id
+        Arguments: vault_id, passphrase
+        Returns: MessageResponse
     """
     try:
         auth.unlock_software_only(request.vault_id, request.passphrase)
@@ -102,8 +128,8 @@ async def unlock_software(request: SoftwareUnlockRequest):
 async def lock_vault():
     """
         Desc: Lock the active vault session and clear all secrets.
-        Args: vault_id
-        Returns: dict, session data and vault id
+        Arguments: None
+        Returns: MessageResponse
     """
     vault_id = session.get_active_vault_id()
     if vault_id is None:
@@ -120,20 +146,17 @@ async def lock_vault():
 @router.get("/status", response_model=StatusResponse)
 async def get_status(vault_id: int | None = None):
     """
-        Desc: Return current vault lock state, hardware gate status,
-        and passphrase window status.
-        Args: vault_id
+        Desc: Return current vault lock state, hardware gate status, and passphrase window status.
+        Arguments: vault_id
         Returns: StatusResponse
     """
     active_vault = session.get_active_vault_id()
-    
     if not active_vault:
-        # Not unlocked yet, but we might have a passphrase window open for a specific vault
         window_active = False
         if vault_id:
             window_active = session.is_passphrase_window_active(vault_id)
         return StatusResponse(is_locked=True, passphrase_window_active=window_active)
-        
+    
     is_locked = not session.is_unlocked(active_vault)
     session_data = session.get_session(active_vault)
     policy = database.load_vault_policy(active_vault) or {}
@@ -157,7 +180,7 @@ async def get_status(vault_id: int | None = None):
 async def list_entries():
     """
         Desc: Return all credential entries (requires unlocked session).
-        Args: vault_id
+        Arguments: None
         Returns: EntriesListResponse
     """
     vault_id = session.get_active_vault_id()
@@ -177,8 +200,8 @@ async def list_entries():
 async def add_entry(request: AddEntryRequest):
     """
         Desc: Add a new credential entry (requires unlocked session).
-        Args: vault_id, site, username, password
-        Returns: dict, session data and vault id
+        Arguments: site, username, password
+        Returns: EntryResponse
     """
     vault_id = session.get_active_vault_id()
     if vault_id is None:
@@ -203,8 +226,8 @@ async def add_entry(request: AddEntryRequest):
 async def update_entry(entry_id: int, request: UpdateEntryRequest):
     """
         Desc: Update an existing credential entry (requires unlocked session).
-        Args: vault_id, entry_id, site, username, password
-        Returns: dict, session data and vault id
+        Arguments: entry_id, site, username, password
+        Returns: EntryResponse
     """
     vault_id = session.get_active_vault_id()
     if vault_id is None:
@@ -230,8 +253,8 @@ async def update_entry(entry_id: int, request: UpdateEntryRequest):
 async def delete_entry(entry_id: int):
     """
         Desc: Delete a credential entry (requires unlocked session).
-        Args: vault_id, entry_id
-        Returns: dict, session data and vault id
+        Arguments: entry_id
+        Returns: MessageResponse
     """
     vault_id = session.get_active_vault_id()
     if vault_id is None:
@@ -254,8 +277,8 @@ async def delete_entry(entry_id: int):
 async def search_entries(q: str = ""):
     """
         Desc: Search credential entries by site or username (requires unlocked session).
-        Args: vault_id, query
-        Returns: dict, session data and vault id
+        Arguments: query
+        Returns: EntriesListResponse
     """
     vault_id = session.get_active_vault_id()
     if vault_id is None:
@@ -281,8 +304,8 @@ async def search_entries(q: str = ""):
 async def generate_password(request: GeneratePasswordRequest):
     """
         Desc: Generate a random password with specified options.
-        Args: vault_id, site, username, password
-        Returns: dict, session data and vault id
+        Arguments: length, use_upper, use_lower, use_digits, use_symbols
+        Returns: GeneratePasswordResponse
     """
     try:
         password = password_utils.generate_password(
@@ -301,8 +324,8 @@ async def generate_password(request: GeneratePasswordRequest):
 async def check_password(request: CheckPasswordRequest):
     """
         Desc: Check the strength of a given password.
-        Args: vault_id, site, username, password
-        Returns: dict, session data and vault id
+        Arguments: password
+        Returns: CheckPasswordResponse
     """
     try:
         result = password_utils.check_password_strength(request.password)
@@ -318,7 +341,7 @@ async def check_password(request: CheckPasswordRequest):
 async def get_logs():
     """
         Desc: Return access logs (requires unlocked session).
-        Args: vault_id, user_id
+        Arguments: None
         Returns: LogsResponse
     """
     try:

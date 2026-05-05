@@ -28,12 +28,11 @@ from app import serial_service, hardware
 async def lifespan(app: FastAPI):
     """
         Desc: Application lifespan handler.
-        Args: FastAPI app instance.
+        Arguments: app
         Returns: None
     """
-
-    # --- Startup ---
     print("[startup] Initializing database...")
+
     initialize_database()
     print("[startup] Database ready.")
 
@@ -48,8 +47,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # --- Shutdown ---
     serial_service.disconnect()
+
     print("[shutdown] Server stopped.")
 
 # -------------

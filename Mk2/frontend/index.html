@@ -22,9 +22,13 @@
                     <p class="subtitle">Secure Credential Management</p>
                     <form id="unlock-form">
                         <div class="input-group">
+                            <i class="fa-solid fa-user"></i>
+                            <input type="text" id="unlock-username" placeholder="Username to find vaults" autocomplete="off" required>
+                        </div>
+                        <div class="input-group">
                             <i class="fa-solid fa-box"></i>
-                            <select id="unlock-vault-id" required>
-                                <option value="" disabled selected>Select a Vault</option>
+                            <select id="unlock-vault-id" required disabled>
+                                <option value="" disabled selected>Enter username to search vaults</option>
                             </select>
                         </div>
                         <div id="hw-waiting" class="hw-waiting hidden">
@@ -74,6 +78,7 @@
                     <span id="hardware-status" class="hardware-status" title="Hardware Connection">
                         <i class="fa-solid fa-microchip"></i>
                     </span>
+                    <button id="delete-vault-btn" class="btn danger-outline-btn" title="Delete this vault"><i class="fa-solid fa-trash"></i> Delete Vault</button>
                     <button id="lock-btn" class="btn secondary-btn"><i class="fa-solid fa-lock"></i> Lock</button>
                 </div>
             </header>
@@ -144,6 +149,19 @@
                 </div>
                 <div class="modal-actions">
                     <button type="button" id="close-gen-btn" class="btn text-btn">Close</button>
+                </div>
+            </div>
+        </div>
+        <!-- Delete Vault Confirmation Modal -->
+        <div id="delete-vault-modal" class="modal hidden">
+            <div class="modal-content glass-card danger-modal">
+                <div class="danger-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <h2>Delete Vault</h2>
+                <p class="danger-text">This will <strong>permanently destroy</strong> this vault and all passwords stored inside it. This action cannot be undone.</p>
+                <p class="danger-vault-name" id="delete-vault-name"></p>
+                <div class="modal-actions">
+                    <button type="button" id="cancel-delete-btn" class="btn secondary-btn">Cancel</button>
+                    <button type="button" id="confirm-delete-btn" class="btn danger-btn"><i class="fa-solid fa-trash"></i> Delete Forever</button>
                 </div>
             </div>
         </div>

@@ -39,8 +39,16 @@ def initialize_vault(
         "parallelism": ARGON2_PARALLELISM,
     }
 
-    user = database.create_user(username, display_name)
-    vault_id = database.create_vault(user, vault_name)
+    user_record = database.get_user_by_username(username)
+    if user_record:
+        user_id = user_record["user_id"]
+        existing_vaults = database.get_user_vaults(username)
+        if any(v["vault_name"].lower() == vault_name.lower() for v in existing_vaults):
+            raise ValueError(f"A vault named '{vault_name}' already exists for user '{username}'.")
+    else:
+        user_id = database.create_user(username, display_name)
+
+    vault_id = database.create_vault(user_id, vault_name)
     vault_policy = database.create_vault_policy(vault_id, hardware_gate_required, software_only_enabled) 
     master_key = crypto.generate_master_key()
     passphrase_salt_bytes = crypto.generate_salt()
@@ -61,8 +69,8 @@ def initialize_vault(
     empty_vault_bytes = json.dumps(empty_vault).encode("utf-8")
     encrypted_vault_blob, nonce = crypto.encrypt_xchacha20_poly1305(empty_vault_bytes, master_key)
     database.save_vault_data(vault_id, encrypted_vault_blob, nonce)
-    database.write_access_log(vault_id, user, "initialize", "hardware_gated", True, "Vault initialized")
-    return {"user_id": user, "vault_id": vault_id, "success": True}
+    database.write_access_log(vault_id, user_id, "initialize", "hardware_gated", True, "Vault initialized")
+    return {"user_id": user_id, "vault_id": vault_id, "success": True}
 
 # --------------
 # Hardware PIN |
@@ -157,7 +165,12 @@ def unlock_with_passphrase(
         time_cost=auth_credentials["kdf_time_cost"],
         parallelism=auth_credentials["kdf_parallelism"]
     )
-    master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
+    try:
+        master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
+    except crypto.CryptoError:
+        database.write_access_log(vault_id, None, "unlock", auth_method, False, "Invalid passphrase")
+        raise ValueError("Invalid passphrase")
+        
     vault_data = vault.load_decrypted_vault(vault_id, master_key)
     vault_record = database.load_vault(vault_id)
     user_id = vault_record["user_id"] if vault_record else None
@@ -193,7 +206,12 @@ def unlock_software_only(vault_id: int, passphrase: str) -> dict:
         time_cost=auth_credentials["kdf_time_cost"],
         parallelism=auth_credentials["kdf_parallelism"]
     )
-    master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
+    try:
+        master_key = crypto.unwrap_master_key(wrapped_master_key, wrapped_nonce, wrapping_key)
+    except crypto.CryptoError:
+        database.write_access_log(vault_id, None, "unlock", "software_only", False, "Invalid passphrase")
+        raise ValueError("Invalid passphrase")
+        
     vault_data = vault.load_decrypted_vault(vault_id, master_key)
     vault_record = database.load_vault(vault_id)
     user_id = vault_record["user_id"] if vault_record else None

@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.routes import router
-from app.database import initialize_database
+from app.database import db
 
 from app import serial_service, hardware
 
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     """
     print("[startup] Initializing database...")
 
-    initialize_database()
+    db.initialize_database()
     print("[startup] Database ready.")
 
     try:

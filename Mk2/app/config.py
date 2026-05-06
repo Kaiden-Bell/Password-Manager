@@ -6,17 +6,23 @@ Adjust these as needed for your environment.
 """
 
 import os
+import platform
 
 # -------
 # Paths |
 # -------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATABASE_PATH = os.path.join(BASE_DIR, "data", "vault.db")
-
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/vault_db"
 # ------------------
 # Serial / Arduino |
 # ------------------
-SERIAL_PORT = "/dev/ttyACM0"   # Update for your OS (e.g., "COM3" on Windows)
+
+if platform.system() == "Windows":
+    SERIAL_PORT = "COM5"  # Or "COM3", "COM4", etc.
+else:
+    # macOS / Linux
+    SERIAL_PORT = "/dev/ttyACM0"  # Or "/dev/tty.usbmodem..."
+
 BAUD_RATE = 9600
 
 # ---------------

@@ -12,13 +12,13 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.database import initialize_database
+from app.database import db
 from app.auth import initialize_vault
 
 
 def main():
     # Ensure database exists
-    initialize_database()
+    db.initialize_database()
 
     print("Seeding demo vault...")
 

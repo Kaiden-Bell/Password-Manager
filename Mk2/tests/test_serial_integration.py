@@ -31,8 +31,8 @@ def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.DATABASE_PATH", db_path)
     monkeypatch.setattr("app.database.DATABASE_PATH", db_path)
     
-    from app.database import initialize_database
-    initialize_database()
+    from app.database import db
+    db.initialize_database()
     yield db_path
 
 
@@ -326,16 +326,18 @@ class TestVerifyHardwarePin:
         assert session.is_passphrase_window_active(initialized_vault["vault_id"]) is False
 
     def test_failed_attempts_increment(self, initialized_vault):
-        from app import auth, database
+        from app import auth
+from app.database import db
 
         for _ in range(2):
             auth.verify_hardware_pin(initialized_vault["vault_id"], "999999")
 
-        attempts = database.get_failed_pin_attempts(initialized_vault["vault_id"])
+        attempts = db.get_failed_pin_attempts(initialized_vault["vault_id"])
         assert attempts == 2
 
     def test_correct_pin_resets_failed_attempts(self, initialized_vault):
-        from app import auth, database
+        from app import auth
+from app.database import db
 
         # Fail twice
         auth.verify_hardware_pin(initialized_vault["vault_id"], "999999")
@@ -344,7 +346,7 @@ class TestVerifyHardwarePin:
         # Succeed
         auth.verify_hardware_pin(initialized_vault["vault_id"], initialized_vault["pin"])
 
-        attempts = database.get_failed_pin_attempts(initialized_vault["vault_id"])
+        attempts = db.get_failed_pin_attempts(initialized_vault["vault_id"])
         assert attempts == 0
 
 
@@ -356,16 +358,18 @@ class TestPinLockout:
     """Test that 3 consecutive failed PINs lock the vault."""
 
     def test_lockout_after_three_failures(self, initialized_vault):
-        from app import auth, database
+        from app import auth
+from app.database import db
 
         for _ in range(3):
             auth.verify_hardware_pin(initialized_vault["vault_id"], "000000")
 
-        vault = database.load_vault(initialized_vault["vault_id"])
+        vault = db.load_vault(initialized_vault["vault_id"])
         assert vault["vault_status"] == "LOCKED"
 
     def test_fourth_attempt_still_locked(self, initialized_vault):
-        from app import auth, database
+        from app import auth
+from app.database import db
 
         # Trigger lockout
         for _ in range(3):
@@ -378,7 +382,7 @@ class TestPinLockout:
         )
         # verify_hardware_pin still checks the hash, 
         # but the vault status in DB should be LOCKED
-        vault = database.load_vault(initialized_vault["vault_id"])
+        vault = db.load_vault(initialized_vault["vault_id"])
         assert vault["vault_status"] == "LOCKED"
 
 
@@ -592,7 +596,8 @@ class TestSimulatedHardwareFlow:
         """
         3 failed PINs → vault locked → LOCKED could be sent to Arduino.
         """
-        from app import serial_service, hardware, database
+        from app import serial_service, hardware
+from app.database import db
 
         # Trigger 3 failures
         for _ in range(3):
@@ -600,7 +605,7 @@ class TestSimulatedHardwareFlow:
             hardware.handle_pin_attempt(pin)
 
         # Verify vault is locked
-        vault = database.load_vault(initialized_vault["vault_id"])
+        vault = db.load_vault(initialized_vault["vault_id"])
         assert vault["vault_status"] == "LOCKED"
 
         # Send LOCKED response

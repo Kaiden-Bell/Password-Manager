@@ -93,8 +93,8 @@ def handle_pin_attempt(pin_attempt: str) -> str:
         send_denied()
         return "DENIED"
 
-    from app import database
-    policy = database.load_vault_policy(_target_vault_id)
+    from app.database import db
+    policy = db.load_vault_policy(_target_vault_id)
     if not policy or not policy.get("hardware_gate_required"):
         send_denied()
         return "DENIED"

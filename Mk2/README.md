@@ -4,7 +4,7 @@ A local encrypted password manager with optional Arduino keypad-based hardware g
 
 ## Overview
 
-The Vault stores credentials locally in an encrypted SQLite database. It uses two unlock modes to balance security with convenience.
+The Vault stores credentials locally in an encrypted PostgreSQL database. It uses two unlock modes to balance security with convenience.
 
 ### Hardware-Gated Mode
 1. Enter a 6-digit PIN on an Arduino-connected keypad.
@@ -46,7 +46,7 @@ vault master key  →  decrypt encrypted vault data
 | Component | Technology |
 |-----------|-----------|
 | Backend | Python, FastAPI, Uvicorn |
-| Database | SQLite (built-in `sqlite3`) |
+| Database | PostgreSQL (psycopg2-binary) |
 | Crypto | argon2-cffi, PyNaCl (XChaCha20-Poly1305) |
 | Frontend | HTML, CSS, vanilla JavaScript |
 | Hardware | Arduino Mega, 4×4 keypad, LEDs |
@@ -61,7 +61,7 @@ the_vault/
 │   ├── main.py              # FastAPI entry point
 │   ├── config.py            # Configuration constants
 │   ├── models.py            # Pydantic request/response models
-│   ├── database.py          # SQLite helper layer + schema
+│   ├── database.py          # PostgreSQL OOP wrapper + schema
 │   ├── auth.py              # Authentication orchestration
 │   ├── crypto.py            # Cryptographic operations
 │   ├── vault.py             # Vault data operations
@@ -70,8 +70,7 @@ the_vault/
 │   ├── hardware.py          # Hardware auth logic
 │   ├── session.py           # In-memory session manager
 │   └── routes.py            # FastAPI API routes
-├── data/
-│   └── vault.db             # SQLite database (auto-created)
+
 ├── frontend/
 │   ├── index.html           # Single-page UI
 │   ├── style.css            # Dark theme styles
@@ -100,6 +99,7 @@ Full DDL is in `app/database.py`.
 
 ### Prerequisites
 - Python 3.11+
+- PostgreSQL server running (with credentials matching app/config.py)
 - (Optional) Arduino Mega with 4×4 keypad and 3 LEDs
 
 ### Installation

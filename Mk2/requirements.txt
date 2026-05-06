@@ -3,3 +3,4 @@ uvicorn[standard]
 pyserial
 argon2-cffi
 pynacl
+psycopg2-binary

@@ -25,7 +25,8 @@ from app.models import (
     LogsResponse,
 )
 
-from app import auth, vault, session, password_utils, database, hardware
+from app import auth, vault, session, password_utils, hardware
+from app.database import db
 
 router = APIRouter(prefix="/api")
 
@@ -43,9 +44,9 @@ async def list_vaults(username: str | None = None):
     if not username:
         return {"vaults": []}
     try:
-        vaults = database.get_user_vaults(username)
+        vaults = db.get_user_vaults(username)
         for v in vaults:
-            policy = database.load_vault_policy(v["vault_id"])
+            policy = db.load_vault_policy(v["vault_id"])
             v["hardware_gate_required"] = bool(policy.get("hardware_gate_required")) if policy else False
         return {"vaults": vaults}
     except Exception as e:
@@ -67,7 +68,7 @@ async def delete_vault(vault_id: int):
 
     try:
         session.lock_session(vault_id)
-        database.delete_vault(vault_id)
+        db.delete_vault(vault_id)
         return MessageResponse(message=f"Vault {vault_id} deleted successfully")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -166,7 +167,7 @@ async def lock_vault():
     hardware.reset_passphrase_fails(vault_id)
     hardware.set_target_vault(None)
     hardware.send_locked()
-    database.write_access_log(vault_id, user_id, "lock", None, True, "Vault locked")
+    db.write_access_log(vault_id, user_id, "lock", None, True, "Vault locked")
     return MessageResponse(message=f"Vault {vault_id} locked successfully")
 
 # -------------------------
@@ -210,7 +211,7 @@ async def get_status(vault_id: int | None = None):
     
     is_locked = not session.is_unlocked(active_vault)
     session_data = session.get_session(active_vault)
-    policy = database.load_vault_policy(active_vault) or {}
+    policy = db.load_vault_policy(active_vault) or {}
     
     pw_window_active = session.is_passphrase_window_active(active_vault)
     attempts_remaining = None
@@ -275,7 +276,7 @@ async def add_entry(request: AddEntryRequest):
             request.username,
             request.password
         )
-        database.write_access_log(vault_id, session_data["active_user_id"], "add_credential", session_data["auth_method"], True, f"Added credential for {request.site}")
+        db.write_access_log(vault_id, session_data["active_user_id"], "add_credential", session_data["auth_method"], True, f"Added credential for {request.site}")
         return EntryResponse(**entry)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -302,7 +303,7 @@ async def update_entry(entry_id: int, request: UpdateEntryRequest):
             username=request.username,
             password=request.password
         )
-        database.write_access_log(vault_id, session_data["active_user_id"], "update_credential", session_data["auth_method"], True, f"Updated credential ID {entry_id}")
+        db.write_access_log(vault_id, session_data["active_user_id"], "update_credential", session_data["auth_method"], True, f"Updated credential ID {entry_id}")
         return EntryResponse(**entry)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -326,7 +327,7 @@ async def delete_entry(entry_id: int):
             vault_id,
             entry_id
         )
-        database.write_access_log(vault_id, session_data["active_user_id"], "delete_credential", session_data["auth_method"], True, f"Deleted credential ID {entry_id}")
+        db.write_access_log(vault_id, session_data["active_user_id"], "delete_credential", session_data["auth_method"], True, f"Deleted credential ID {entry_id}")
         return MessageResponse(message=f"Entry {entry_id} deleted successfully")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -410,7 +411,7 @@ async def get_logs():
         if session_data is None:
             raise HTTPException(status_code=400, detail="No active vault session found")
 
-        logs = database.get_access_logs(
+        logs = db.get_access_logs(
             user_id=session_data['active_user_id'],
             vault_id=session_data['active_vault_id']
         )

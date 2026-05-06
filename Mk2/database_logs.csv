@@ -1,0 +1,12 @@
+log_id,vault_id,user_id,event_type,auth_method,success,details,created_at
+7,3,3,initialize,hardware_gated,1,Vault initialized,2026-05-06T02:46:06.609064+00:00
+20,5,5,initialize,hardware_gated,1,Vault initialized,2026-05-06T06:30:44.860502+00:00
+21,5,5,unlock,software_only,1,Vault unlocked,2026-05-06T06:30:45.070867+00:00
+22,5,5,lock,,1,Vault locked,2026-05-06T06:30:46.818770+00:00
+23,6,5,initialize,hardware_gated,1,Vault initialized,2026-05-06T06:30:56.446024+00:00
+24,6,5,unlock,software_only,1,Vault unlocked,2026-05-06T06:30:56.648339+00:00
+25,6,5,lock,,1,Vault locked,2026-05-06T06:30:58.524105+00:00
+26,7,6,initialize,hardware_gated,1,Vault initialized,2026-05-06T06:55:38.496875+00:00
+27,7,6,unlock,hardware_gated,1,Vault unlocked,2026-05-06T06:58:00.209788+00:00
+28,7,6,lock,,1,Vault locked,2026-05-06T06:58:33.630698+00:00
+32,9,5,initialize,hardware_gated,1,Vault initialized,2026-05-06T17:05:06.752434+00:00

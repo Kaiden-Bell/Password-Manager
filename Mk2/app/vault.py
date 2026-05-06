@@ -20,7 +20,8 @@ Desc: Manages the plaintext vault data structure and re-encryption after mutatio
 
 import json
 
-from app import crypto, database, session
+from app import crypto, session
+from app.database import db
 from app.password_utils import current_date_string
 
 # ----------------
@@ -51,7 +52,7 @@ def load_decrypted_vault(vault_id: int, master_key: bytes) -> dict:
         Returns: dict, decrypted vault data
     """
 
-    result = database.load_vault_data(vault_id)
+    result = db.load_vault_data(vault_id)
 
     if not result:
         return create_empty_vault()
@@ -78,7 +79,7 @@ def save_decrypted_vault(
 
     json_bytes = json.dumps(vault_data).encode("utf-8")
     enc_b64, nonce_b64 = crypto.encrypt_xchacha20_poly1305(json_bytes, master_key)
-    database.update_vault_data(vault_id, enc_b64, nonce_b64)
+    db.update_vault_data(vault_id, enc_b64, nonce_b64)
 
 # -----------------
 # Credential CRUD |

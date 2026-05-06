@@ -1,7 +1,6 @@
 import os
 import sqlite3
-from app.database import (
-    initialize_database,
+from app.database import db # (
     get_connection,
     create_user,
     create_vault,
@@ -21,8 +20,8 @@ from app.database import (
 from app import config
 
 TEST_DB_PATH = "data/test_db_simple.db"
-import app.database
-app.database.DATABASE_PATH = TEST_DB_PATH
+from app.database import db
+db.db_path = TEST_DB_PATH
 
 def run_tests():
     if os.path.exists(TEST_DB_PATH):
@@ -30,7 +29,7 @@ def run_tests():
     testCount = 0
     print("Init DB")
     try:
-        initialize_database()
+        db.initialize_database()
         assert os.path.exists(TEST_DB_PATH)
         testCount += 1
     except Exception as e:
